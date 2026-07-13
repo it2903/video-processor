@@ -49,6 +49,27 @@ Push this repository to the Space git remote, or mirror the same source there.
 Hugging Face Docker Spaces use the root `Dockerfile`, so no extra Dockerfile
 rename is required.
 
+## GitHub Actions sync
+
+The `production` branch includes `.github/workflows/sync-huggingface-space.yml`.
+It syncs every push from GitHub to a private Hugging Face Docker Space.
+
+Create these in the GitHub repository settings:
+
+- Repository secret: `HF_TOKEN`
+- Repository variable: `HF_SPACE_ID`
+
+`HF_TOKEN` must be a Hugging Face access token with permission to write to the
+target Space. `HF_SPACE_ID` must use the `username/space-name` format, for
+example:
+
+```text
+theshortylz/video-processor-api
+```
+
+After those values exist, rerun the workflow from GitHub Actions or push a new
+commit to `production`.
+
 ## Runtime secrets and variables
 
 Set these as Space secrets or environment variables. Never commit real values to

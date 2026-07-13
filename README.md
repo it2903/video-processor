@@ -1,3 +1,11 @@
+---
+title: Video Processor API
+sdk: docker
+app_port: 8080
+suggested_hardware: cpu-basic
+license: mit
+---
+
 <div align="center">
 
 # MoneyPrinterTurbo 💸
