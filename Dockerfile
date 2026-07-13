@@ -35,7 +35,12 @@ RUN if [ "$PIP_USE_OFFICIAL" = "1" ]; then \
 
 COPY --chown=user . .
 
-RUN mkdir -p storage logs && chown -R user:user storage logs
+RUN if [ ! -f config.toml ] && [ -f config.example.toml ]; then \
+        cp config.example.toml config.toml; \
+    fi && \
+    mkdir -p storage logs && \
+    if [ -f config.toml ]; then chown user:user config.toml; fi && \
+    chown -R user:user storage logs
 
 EXPOSE 8080
 

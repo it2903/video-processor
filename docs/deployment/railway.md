@@ -4,6 +4,10 @@ This deployment target runs only the FastAPI backend from the root Dockerfile.
 Railway injects `PORT` at runtime, and the app reads it before falling back to
 `MPT_LISTEN_PORT`, so no custom start command is required.
 
+The Dockerfile creates a runtime `config.toml` from `config.example.toml` during
+the image build. Do not commit a real `config.toml`; production values should
+come from Railway variables.
+
 ## Cost and limits
 
 Railway is suitable for a prototype, but it is not unlimited free Docker
