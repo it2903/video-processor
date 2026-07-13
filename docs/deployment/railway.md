@@ -8,6 +8,10 @@ The Dockerfile creates a runtime `config.toml` from `config.example.toml` during
 the image build. Do not commit a real `config.toml`; production values should
 come from Railway variables.
 
+The Docker image defaults `PORT=8080`. If Railway still reports
+`service unavailable` during `/health`, check the service domain target port in
+Railway Settings > Networking and make sure it points to `8080`.
+
 ## Cost and limits
 
 Railway is suitable for a prototype, but it is not unlimited free Docker

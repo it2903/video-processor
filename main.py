@@ -29,7 +29,10 @@ def get_docs_url() -> str:
 
 
 if __name__ == "__main__":
-    logger.info(f"start server, docs: {get_docs_url()}")
+    logger.info(
+        f"start server, bind: {config.listen_host}:{config.listen_port}, "
+        f"docs: {get_docs_url()}"
+    )
     uvicorn.run(
         app="app.asgi:app",
         host=config.listen_host,

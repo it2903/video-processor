@@ -7,6 +7,7 @@ ENV HOME=/home/user \
     PYTHONPATH="/home/user/app" \
     PYTHONUNBUFFERED=1 \
     MPT_LISTEN_HOST=0.0.0.0 \
+    PORT=8080 \
     MPT_LISTEN_PORT=8080 \
     MPT_REQUIRE_API_KEY=true
 
