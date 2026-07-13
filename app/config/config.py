@@ -180,19 +180,27 @@ def load_config():
     if os.path.isdir(config_file):
         shutil.rmtree(config_file)
 
+    config_to_load = config_file
     if not os.path.isfile(config_file):
         example_file = f"{root_dir}/config.example.toml"
         if os.path.isfile(example_file):
-            shutil.copyfile(example_file, config_file)
-            logger.info("copy config.example.toml to config.toml")
+            try:
+                shutil.copyfile(example_file, config_file)
+                logger.info("copy config.example.toml to config.toml")
+            except OSError as e:
+                config_to_load = example_file
+                logger.warning(
+                    "failed to copy config.example.toml to config.toml; "
+                    f"loading example config directly: {e}"
+                )
 
-    logger.info(f"load config from file: {config_file}")
+    logger.info(f"load config from file: {config_to_load}")
 
     try:
-        _config_ = toml.load(config_file)
+        _config_ = toml.load(config_to_load)
     except Exception as e:
         logger.warning(f"load config failed: {str(e)}, try to load as utf-8-sig")
-        with open(config_file, mode="r", encoding="utf-8-sig") as fp:
+        with open(config_to_load, mode="r", encoding="utf-8-sig") as fp:
             _cfg_content = fp.read()
             _config_ = toml.loads(_cfg_content)
     return _config_
