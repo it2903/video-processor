@@ -56,7 +56,11 @@ app = get_application()
 cors_allowed_origins_str = os.getenv("CORS_ALLOWED_ORIGINS", "")
 api_auth_enabled = bool(config.app.get("api_key") or config.app.get("require_api_key"))
 if cors_allowed_origins_str:
-    origins = [origin.strip() for origin in cors_allowed_origins_str.split(",") if origin.strip()]
+    origins = [
+        origin.strip()
+        for origin in cors_allowed_origins_str.split(",")
+        if origin.strip()
+    ]
 elif api_auth_enabled:
     origins = []
     logger.warning(
@@ -72,6 +76,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health", include_in_schema=False)
+def healthcheck():
+    return {"status": "ok"}
+
 
 task_dir = utils.task_dir()
 app.mount(

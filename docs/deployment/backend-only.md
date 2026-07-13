@@ -4,12 +4,15 @@ This repository is prepared to deploy the FastAPI backend without the Streamlit
 WebUI. The root `Dockerfile` runs `python main.py` and exposes port `8080`.
 The previous WebUI image is preserved in `Dockerfile.webui`.
 
-## Recommended free target
+## Active deployment target
 
-Use Hugging Face Spaces with the Docker SDK for the video worker. Docker Spaces
-support custom FastAPI containers, runtime secrets, and an `app_port` setting.
-Free Spaces use ephemeral disk, so generated files must be persisted externally
-if they need to survive restarts.
+Use Railway for the backend deployment. The repository includes `railway.toml`
+and a `/health` endpoint so Railway can build from the root Dockerfile and run a
+deployment healthcheck.
+
+Railway is suitable for a prototype, but it is not unlimited free Docker
+hosting. Video generation uses FFmpeg, disk, CPU, Redis, Supabase, and external
+model APIs, so expect to upgrade if jobs become long or concurrent.
 
 Do not use Vercel Functions as the primary video worker. This backend writes
 media files, runs FFmpeg, and can process for longer than small serverless
@@ -19,60 +22,27 @@ small proxy that calls this backend.
 ## Required services
 
 - A fork of this repository.
-- A Hugging Face account and a Docker Space.
+- A Railway account and project connected to the `production` branch.
 - Redis for task queue/state. Upstash Redis works for prototypes.
 - Supabase Storage for generated video persistence.
 - At least one LLM provider API key.
 - A stock material provider key, unless requests use `video_source = "local"`.
 
-## Hugging Face Space setup
+## Railway setup
 
-Create a new Space:
-
-- SDK: Docker
-- Visibility: private while testing
-- Port: `8080`
-- Hardware: `cpu-basic` to start
-
-The Space `README.md` front matter should include:
-
-```yaml
----
-title: video-processor-api
-sdk: docker
-app_port: 8080
-suggested_hardware: cpu-basic
----
-```
-
-Push this repository to the Space git remote, or mirror the same source there.
-Hugging Face Docker Spaces use the root `Dockerfile`, so no extra Dockerfile
-rename is required.
-
-## GitHub Actions sync
-
-The `production` branch includes `.github/workflows/sync-huggingface-space.yml`.
-It syncs every push from GitHub to a private Hugging Face Docker Space.
-
-Create these in the GitHub repository settings:
-
-- Repository secret: `HF_TOKEN`
-- Repository variable: `HF_SPACE_ID`
-
-`HF_TOKEN` must be a Hugging Face access token with permission to write to the
-target Space. `HF_SPACE_ID` must use the `username/space-name` format, for
-example:
+Follow the dedicated guide:
 
 ```text
-theshortylz/video-processor-api
+docs/deployment/railway.md
 ```
 
-After those values exist, rerun the workflow from GitHub Actions or push a new
-commit to `production`.
+Deploy from GitHub, select `theshortylz/video-processor`, use branch
+`production`, keep root directory `/`, and let Railway use the committed root
+`Dockerfile`.
 
 ## Runtime secrets and variables
 
-Set these as Space secrets or environment variables. Never commit real values to
+Set these as Railway service variables. Never commit real values to
 `.env`, `.env.example`, `config.toml`, or Dockerfiles.
 
 Required:
@@ -81,7 +51,7 @@ Required:
 MPT_REQUIRE_API_KEY=true
 MPT_API_KEY=<long-random-server-secret>
 CORS_ALLOWED_ORIGINS=https://your-frontend-domain.example
-MPT_ENDPOINT=https://your-space-subdomain.hf.space
+MPT_ENDPOINT=https://your-railway-domain.up.railway.app
 MPT_LLM_PROVIDER=openai
 OPENAI_API_KEY=<provider-key>
 REDIS_URL=<redis://... or rediss://...>
@@ -189,8 +159,6 @@ docker run --rm -p 18080:8080 \
 
 ## Security checklist
 
-- Keep the Hugging Face Space private until auth, CORS, Redis, and Supabase are
-  verified.
 - Keep `MPT_REQUIRE_API_KEY=true` for public deployments.
 - Use a long random `MPT_API_KEY` and rotate it if it is ever exposed.
 - Do not expose Redis publicly.
