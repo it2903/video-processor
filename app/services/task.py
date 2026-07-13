@@ -8,7 +8,16 @@ from loguru import logger
 from app.config import config
 from app.models import const
 from app.models.schema import VideoConcatMode, VideoParams
-from app.services import llm, material, subtitle, twelvelabs, video, voice, upload_post
+from app.services import (
+    llm,
+    material,
+    subtitle,
+    supabase_storage,
+    twelvelabs,
+    upload_post,
+    video,
+    voice,
+)
 from app.services import state as sm
 from app.utils import file_security, utils
 
@@ -438,6 +447,18 @@ def start(task_id, params: VideoParams, stop_at: str = "video"):
         f"task {task_id} finished, generated {len(final_video_paths)} videos."
     )
 
+    storage_results = supabase_storage.upload_task_videos(task_id, final_video_paths)
+    stored_video_urls = [
+        result.get("url", "")
+        for result in storage_results
+        if result.get("url")
+    ]
+    response_video_paths = (
+        stored_video_urls
+        if len(stored_video_urls) == len(final_video_paths)
+        else final_video_paths
+    )
+
     # 7. Cross-post to social platforms (if enabled)
     cross_post_results = []
     if upload_post.upload_post_service.is_configured() and upload_post.upload_post_service.auto_upload:
@@ -473,7 +494,7 @@ def start(task_id, params: VideoParams, stop_at: str = "video"):
                 logger.warning(f"⚠️ Failed to cross-post: {video_path} - {result.get('error', 'Unknown error')}")
 
     kwargs = {
-        "videos": final_video_paths,
+        "videos": response_video_paths,
         "combined_videos": combined_video_paths,
         "script": video_script,
         "terms": video_terms,
@@ -481,6 +502,7 @@ def start(task_id, params: VideoParams, stop_at: str = "video"):
         "audio_duration": audio_duration,
         "subtitle_path": subtitle_path,
         "materials": downloaded_videos,
+        "storage_results": storage_results if storage_results else None,
         "cross_post_results": cross_post_results if cross_post_results else None,
     }
     sm.state.update_task(

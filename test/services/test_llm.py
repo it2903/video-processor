@@ -1469,9 +1469,14 @@ class TestSocialMetadata(unittest.TestCase):
             '"hashtags":["#Tokyo","#Coffee","#Shorts"]}'
         )
 
-        with patch.object(llm, "_generate_response", return_value=llm_response):
+        with patch.object(
+            config,
+            "app",
+            dict(config.app, api_key="test-api-key"),
+        ), patch.object(llm, "_generate_response", return_value=llm_response):
             response = TestClient(app).post(
                 "/api/v1/social-metadata",
+                headers={"x-api-key": "test-api-key"},
                 json=request_body,
             )
 
@@ -1488,6 +1493,30 @@ class TestSocialMetadata(unittest.TestCase):
                 },
             },
         )
+
+    def test_social_metadata_endpoint_fails_closed_without_required_api_key(self):
+        from fastapi.testclient import TestClient
+
+        from app.asgi import app
+
+        with patch.object(
+            config,
+            "app",
+            dict(config.app, api_key="", require_api_key=True),
+        ), patch.object(llm, "_generate_response") as mock_generate:
+            response = TestClient(app).post(
+                "/api/v1/social-metadata",
+                json={
+                    "video_subject": "Tokyo coffee shops",
+                    "video_script": "Three quiet coffee shops.",
+                    "language": "en",
+                    "platform": "youtube_shorts",
+                },
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("MPT_API_KEY is not configured", response.json()["message"])
+        mock_generate.assert_not_called()
 
 
 FOUNDRY_KEY = os.environ.get("ANTHROPIC_FOUNDRY_API_KEY", "")

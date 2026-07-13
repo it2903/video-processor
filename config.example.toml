@@ -21,6 +21,14 @@ listen_port = 8080
 # 是否隐藏 WebUI 基础配置面板。
 hide_config = false
 
+# Optional API key for public backend deployments. When set, every /api/v1
+# request must include this value in the x-api-key header. Prefer MPT_API_KEY
+# as an environment variable in hosted deployments.
+api_key = ""
+# Set true in hosted/public deployments to reject API requests when api_key or
+# MPT_API_KEY is missing. The backend Docker image sets MPT_REQUIRE_API_KEY=true.
+require_api_key = false
+
 # Timeout in seconds for a single Edge TTS streaming request.
 # 单次 Edge TTS 流式请求超时时间。慢网络可适当调大，设置为 0 表示禁用超时。
 edge_tts_timeout = 30
@@ -230,7 +238,9 @@ material_directory = ""
 
 # Optional Redis-backed task state. Keep Redis private to this application;
 # untrusted writers must not be able to modify serialized task records.
+# REDIS_URL can also be supplied as an environment variable and takes precedence.
 enable_redis = false
+redis_url = ""
 redis_host = "localhost"
 redis_port = 6379
 redis_db = 0
@@ -239,6 +249,15 @@ redis_password = ""
 # Maximum number of concurrent and queued API video-generation tasks.
 max_concurrent_tasks = 5
 max_queued_tasks = 100
+
+# Optional Supabase Storage persistence for generated video outputs. Prefer the
+# SUPABASE_* environment variables in hosted deployments. The service role key
+# must only live server-side.
+supabase_url = ""
+supabase_service_role_key = ""
+supabase_storage_bucket = "generated-videos"
+supabase_storage_public = false
+supabase_public_url_base = ""
 
 # -----------------------------------------------------------------------------
 # Cross-platform Publishing / 跨平台发布

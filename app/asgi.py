@@ -54,7 +54,17 @@ app = get_application()
 
 # Configures the CORS middleware for the FastAPI app
 cors_allowed_origins_str = os.getenv("CORS_ALLOWED_ORIGINS", "")
-origins = cors_allowed_origins_str.split(",") if cors_allowed_origins_str else ["*"]
+api_auth_enabled = bool(config.app.get("api_key") or config.app.get("require_api_key"))
+if cors_allowed_origins_str:
+    origins = [origin.strip() for origin in cors_allowed_origins_str.split(",") if origin.strip()]
+elif api_auth_enabled:
+    origins = []
+    logger.warning(
+        "CORS_ALLOWED_ORIGINS is not set while API auth is enabled; browser "
+        "cross-origin requests will be blocked until explicit origins are configured."
+    )
+else:
+    origins = ["*"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,

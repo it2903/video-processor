@@ -3,9 +3,11 @@ import shutil
 import socket
 import tempfile
 import threading
+import json
 from contextlib import contextmanager
 
 import toml
+from dotenv import load_dotenv
 from loguru import logger
 
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
@@ -14,6 +16,8 @@ _CONTAINER_CGROUP_MARKERS = ("docker", "containerd", "kubepods", "libpod", "podm
 _DOCKER_HOST_GATEWAY_NAME = "host.docker.internal"
 _config_save_lock = threading.RLock()
 _MISSING = object()
+
+load_dotenv(os.path.join(root_dir, ".env"), override=False)
 
 
 class _SynchronizedConfig(dict):
@@ -194,6 +198,199 @@ def load_config():
     return _config_
 
 
+def _first_env(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and value != "":
+            return value
+    return ""
+
+
+def _env_bool(*names: str) -> bool | None:
+    value = _first_env(*names)
+    if value == "":
+        return None
+
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    logger.warning(f"invalid boolean environment value for {names[0]}: {value}")
+    return None
+
+
+def _env_int(*names: str) -> int | None:
+    value = _first_env(*names)
+    if value == "":
+        return None
+
+    try:
+        return int(value)
+    except ValueError:
+        logger.warning(f"invalid integer environment value for {names[0]}: {value}")
+        return None
+
+
+def _env_list(*names: str) -> list[str] | None:
+    value = _first_env(*names)
+    if value == "":
+        return None
+
+    stripped = value.strip()
+    if not stripped:
+        return []
+
+    if stripped.startswith("["):
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, list):
+                return [str(item).strip() for item in parsed if str(item).strip()]
+        except json.JSONDecodeError:
+            logger.warning(f"invalid JSON list environment value for {names[0]}")
+
+    return [item.strip() for item in stripped.split(",") if item.strip()]
+
+
+def _normalize_redis_url(value: str) -> str:
+    redis_url = str(value or "").strip()
+    if not redis_url:
+        return ""
+
+    if redis_url.startswith(("redis://", "rediss://", "unix://")):
+        return redis_url
+
+    logger.warning(
+        "invalid Redis URL ignored; expected redis://, rediss://, or unix://"
+    )
+    return ""
+
+
+def _set_str_from_env(target: dict, key: str, *env_names: str):
+    value = _first_env(*env_names)
+    if value != "":
+        target[key] = value
+
+
+def _set_int_from_env(target: dict, key: str, *env_names: str):
+    value = _env_int(*env_names)
+    if value is not None:
+        target[key] = value
+
+
+def _set_bool_from_env(target: dict, key: str, *env_names: str):
+    value = _env_bool(*env_names)
+    if value is not None:
+        target[key] = value
+
+
+def _set_list_from_env(target: dict, key: str, *env_names: str):
+    value = _env_list(*env_names)
+    if value is not None:
+        target[key] = value
+
+
+def _apply_runtime_env_overrides():
+    _set_str_from_env(app, "api_key", "MPT_API_KEY")
+    _set_bool_from_env(app, "require_api_key", "MPT_REQUIRE_API_KEY")
+    _set_str_from_env(app, "endpoint", "MPT_ENDPOINT", "MPT_APP_ENDPOINT")
+
+    _set_str_from_env(app, "llm_provider", "MPT_LLM_PROVIDER", "LLM_PROVIDER")
+    _set_str_from_env(app, "moonshot_api_key", "MOONSHOT_API_KEY", "KIMI_API_KEY")
+    _set_str_from_env(app, "moonshot_base_url", "MOONSHOT_BASE_URL", "KIMI_BASE_URL")
+    _set_str_from_env(app, "moonshot_model_name", "MOONSHOT_MODEL_NAME", "KIMI_MODEL_NAME")
+    _set_str_from_env(app, "openai_api_key", "OPENAI_API_KEY")
+    _set_str_from_env(app, "openai_base_url", "OPENAI_BASE_URL")
+    _set_str_from_env(app, "openai_model_name", "OPENAI_MODEL_NAME")
+    _set_str_from_env(app, "gemini_api_key", "GEMINI_API_KEY", "GOOGLE_API_KEY")
+    _set_str_from_env(app, "gemini_model_name", "GEMINI_MODEL_NAME")
+    _set_str_from_env(app, "deepseek_api_key", "DEEPSEEK_API_KEY")
+    _set_str_from_env(app, "deepseek_base_url", "DEEPSEEK_BASE_URL")
+    _set_str_from_env(app, "deepseek_model_name", "DEEPSEEK_MODEL_NAME")
+    _set_str_from_env(app, "qwen_api_key", "QWEN_API_KEY", "DASHSCOPE_API_KEY")
+    _set_str_from_env(app, "qwen_model_name", "QWEN_MODEL_NAME")
+    _set_str_from_env(app, "azure_api_key", "AZURE_OPENAI_API_KEY")
+    _set_str_from_env(app, "azure_base_url", "AZURE_OPENAI_ENDPOINT", "AZURE_BASE_URL")
+    _set_str_from_env(app, "azure_model_name", "AZURE_OPENAI_DEPLOYMENT", "AZURE_MODEL_NAME")
+    _set_str_from_env(app, "azure_api_version", "AZURE_OPENAI_API_VERSION")
+    _set_str_from_env(app, "volcengine_api_key", "VOLCENGINE_API_KEY")
+    _set_str_from_env(app, "volcengine_base_url", "VOLCENGINE_BASE_URL")
+    _set_str_from_env(app, "volcengine_model_name", "VOLCENGINE_MODEL_NAME")
+    _set_str_from_env(app, "grok_api_key", "GROK_API_KEY", "XAI_API_KEY")
+    _set_str_from_env(app, "grok_base_url", "GROK_BASE_URL", "XAI_BASE_URL")
+    _set_str_from_env(app, "grok_model_name", "GROK_MODEL_NAME", "XAI_MODEL_NAME")
+    _set_str_from_env(app, "minimax_api_key", "MINIMAX_API_KEY")
+    _set_str_from_env(app, "minimax_base_url", "MINIMAX_BASE_URL")
+    _set_str_from_env(app, "minimax_model_name", "MINIMAX_MODEL_NAME")
+    _set_str_from_env(app, "mimo_api_key", "MIMO_API_KEY")
+    _set_str_from_env(app, "mimo_base_url", "MIMO_BASE_URL")
+    _set_str_from_env(app, "mimo_model_name", "MIMO_MODEL_NAME")
+    _set_str_from_env(app, "cloudflare_api_key", "CLOUDFLARE_API_KEY")
+    _set_str_from_env(app, "cloudflare_account_id", "CLOUDFLARE_ACCOUNT_ID")
+    _set_str_from_env(app, "cloudflare_gateway_id", "CLOUDFLARE_GATEWAY_ID")
+    _set_str_from_env(app, "cloudflare_model_name", "CLOUDFLARE_MODEL_NAME")
+    _set_str_from_env(app, "modelscope_api_key", "MODELSCOPE_API_KEY")
+    _set_str_from_env(app, "modelscope_base_url", "MODELSCOPE_BASE_URL")
+    _set_str_from_env(app, "modelscope_model_name", "MODELSCOPE_MODEL_NAME")
+    _set_str_from_env(app, "aihubmix_api_key", "AIHUBMIX_API_KEY")
+    _set_str_from_env(app, "aihubmix_base_url", "AIHUBMIX_BASE_URL")
+    _set_str_from_env(app, "aihubmix_model_name", "AIHUBMIX_MODEL_NAME")
+    _set_str_from_env(app, "aimlapi_api_key", "AIMLAPI_API_KEY")
+    _set_str_from_env(app, "aimlapi_base_url", "AIMLAPI_BASE_URL")
+    _set_str_from_env(app, "aimlapi_model_name", "AIMLAPI_MODEL_NAME")
+    _set_str_from_env(app, "evolink_api_key", "EVOLINK_API_KEY")
+    _set_str_from_env(app, "evolink_base_url", "EVOLINK_BASE_URL")
+    _set_str_from_env(app, "evolink_model_name", "EVOLINK_MODEL_NAME")
+    _set_str_from_env(app, "ollama_base_url", "OLLAMA_BASE_URL")
+    _set_str_from_env(app, "ollama_model_name", "OLLAMA_MODEL_NAME")
+    _set_str_from_env(app, "oneapi_api_key", "ONEAPI_API_KEY")
+    _set_str_from_env(app, "oneapi_base_url", "ONEAPI_BASE_URL")
+    _set_str_from_env(app, "oneapi_model_name", "ONEAPI_MODEL_NAME")
+    _set_str_from_env(app, "litellm_model_name", "LITELLM_MODEL_NAME")
+    _set_str_from_env(app, "groq_api_key", "GROQ_API_KEY")
+    _set_str_from_env(app, "groq_base_url", "GROQ_BASE_URL")
+    _set_str_from_env(app, "groq_model_name", "GROQ_MODEL_NAME")
+    _set_str_from_env(app, "pollinations_api_key", "POLLINATIONS_API_KEY")
+    _set_str_from_env(app, "pollinations_base_url", "POLLINATIONS_BASE_URL")
+    _set_str_from_env(app, "pollinations_model_name", "POLLINATIONS_MODEL_NAME")
+
+    _set_list_from_env(app, "pexels_api_keys", "PEXELS_API_KEYS", "PEXELS_API_KEY")
+    _set_list_from_env(app, "pixabay_api_keys", "PIXABAY_API_KEYS", "PIXABAY_API_KEY")
+    _set_list_from_env(app, "coverr_api_keys", "COVERR_API_KEYS", "COVERR_API_KEY")
+    _set_list_from_env(app, "twelvelabs_api_keys", "TWELVELABS_API_KEYS", "TWELVELABS_API_KEY")
+
+    _set_str_from_env(app, "redis_url", "REDIS_URL", "MPT_REDIS_URL")
+    _set_str_from_env(app, "redis_host", "MPT_APP_REDIS_HOST", "REDIS_HOST")
+    _set_int_from_env(app, "redis_port", "MPT_APP_REDIS_PORT", "REDIS_PORT")
+    _set_int_from_env(app, "redis_db", "MPT_APP_REDIS_DB", "REDIS_DB")
+    _set_str_from_env(app, "redis_password", "MPT_APP_REDIS_PASSWORD", "REDIS_PASSWORD")
+    _set_bool_from_env(app, "enable_redis", "MPT_APP_ENABLE_REDIS", "MPT_ENABLE_REDIS")
+    app["redis_url"] = _normalize_redis_url(app.get("redis_url", ""))
+    if (
+        app.get("redis_url")
+        and _env_bool("MPT_APP_ENABLE_REDIS", "MPT_ENABLE_REDIS") is not False
+    ):
+        app["enable_redis"] = True
+
+    _set_int_from_env(app, "max_concurrent_tasks", "MPT_MAX_CONCURRENT_TASKS")
+    _set_int_from_env(app, "max_queued_tasks", "MPT_MAX_QUEUED_TASKS")
+
+    _set_str_from_env(app, "supabase_url", "SUPABASE_URL")
+    _set_str_from_env(app, "supabase_service_role_key", "SUPABASE_SERVICE_ROLE_KEY")
+    _set_str_from_env(app, "supabase_storage_bucket", "SUPABASE_STORAGE_BUCKET")
+    _set_str_from_env(app, "supabase_public_url_base", "SUPABASE_PUBLIC_URL_BASE")
+    _set_bool_from_env(app, "supabase_storage_public", "SUPABASE_STORAGE_PUBLIC")
+
+    _set_str_from_env(azure, "speech_key", "AZURE_SPEECH_KEY")
+    _set_str_from_env(azure, "speech_region", "AZURE_SPEECH_REGION")
+    _set_str_from_env(siliconflow, "api_key", "SILICONFLOW_API_KEY")
+    _set_str_from_env(elevenlabs, "api_key", "ELEVENLABS_API_KEY")
+    _set_str_from_env(elevenlabs, "model_id", "ELEVENLABS_MODEL_ID")
+    _set_str_from_env(chatterbox, "base_url", "CHATTERBOX_BASE_URL")
+    _set_str_from_env(chatterbox, "api_key", "CHATTERBOX_API_KEY")
+    _set_str_from_env(chatterbox, "model_id", "CHATTERBOX_MODEL_ID")
+
+
 def save_config():
     """
     原子保存运行时配置。
@@ -262,11 +459,15 @@ ui = _SynchronizedConfig(
     )
 )
 
+_apply_runtime_env_overrides()
+
 hostname = socket.gethostname()
 
 log_level = _cfg.get("log_level", "DEBUG")
-listen_host = _cfg.get("listen_host", "0.0.0.0")
-listen_port = _cfg.get("listen_port", 8080)
+listen_host = _first_env("MPT_LISTEN_HOST", "HOST") or _cfg.get(
+    "listen_host", "0.0.0.0"
+)
+listen_port = _env_int("PORT", "MPT_LISTEN_PORT") or _cfg.get("listen_port", 8080)
 project_name = _cfg.get("project_name", "MoneyPrinterTurbo")
 project_description = _cfg.get(
     "project_description",

@@ -1146,6 +1146,9 @@ def gemini_tts(
         
         # pydub 会返回打开的输出文件对象。批量生成时若不主动关闭，文件描述符
         # 会持续累积，并在 Windows 上增加后续覆盖或删除音频文件失败的概率。
+        output_dir = os.path.dirname(voice_file)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
         exported_audio = audio_segment.export(voice_file, format="mp3")
         exported_audio.close()
         
