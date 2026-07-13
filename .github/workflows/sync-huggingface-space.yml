@@ -17,6 +17,20 @@ jobs:
       - name: Checkout production
         uses: actions/checkout@v6
 
+      - name: Validate Hugging Face configuration
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE_ID: ${{ vars.HF_SPACE_ID }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::error::Missing GitHub secret HF_TOKEN. Create a Hugging Face write token and save it in this repository's Actions secrets."
+            exit 1
+          fi
+          if [ -z "$HF_SPACE_ID" ]; then
+            echo "::error::Missing GitHub repository variable HF_SPACE_ID, for example theshortylz/video-processor-api."
+            exit 1
+          fi
+
       - name: Sync to Hugging Face Space
         uses: huggingface/hub-sync@v0.2.0
         with:
