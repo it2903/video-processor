@@ -3,6 +3,11 @@ import sys
 
 from loguru import logger
 
+# Railway labels stderr lines as `[err]`, so route early config logs to stdout
+# before importing the config module that emits startup messages.
+logger.remove()
+logger.add(sys.stdout, level=os.getenv("MPT_BOOT_LOG_LEVEL", "INFO"))
+
 from app.config import config
 from app.utils import utils
 
