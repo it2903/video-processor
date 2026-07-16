@@ -69,7 +69,6 @@ audio_codec = "aac"
 # Docker 里的 ffmpeg/AAC 组合在默认配置下更容易出现音频质量波动，
 # 这里显式抬高音频码率，避免成片阶段因为默认值过低而引入明显失真。
 audio_bitrate = "192k"
-fps = 30
 # FFmpeg 按帧率拼接/转码时，最终时长可能比 MoviePy 读到的理论时长短几十毫秒。
 # 这里给视频素材多留一个很小的安全余量，避免音频末尾因为帧舍入出现黑屏、
 # 卡顿或最后一小段旁白没有画面的情况。
@@ -90,6 +89,51 @@ _SUPPORTED_VIDEO_CODECS = (
     "h264_videotoolbox",
 )
 _runtime_disabled_video_codecs = set()
+
+
+def _get_configured_video_fps() -> int:
+    try:
+        configured_fps = int(config.app.get("video_fps", 30) or 30)
+    except (TypeError, ValueError):
+        logger.warning("invalid video_fps configured, fallback to 30")
+        return 30
+    return max(12, min(60, configured_fps))
+
+
+fps = _get_configured_video_fps()
+
+
+def _even_dimension(value: float) -> int:
+    dimension = int(value)
+    if dimension % 2 != 0:
+        dimension -= 1
+    return max(2, dimension)
+
+
+def _resolve_render_size(video_aspect: VideoAspect | str) -> tuple[int, int]:
+    aspect = VideoAspect(video_aspect)
+    video_width, video_height = aspect.to_resolution()
+    try:
+        max_dimension = int(config.app.get("video_max_dimension", 0) or 0)
+    except (TypeError, ValueError):
+        logger.warning("invalid video_max_dimension configured, using native resolution")
+        return video_width, video_height
+
+    if max_dimension <= 0:
+        return video_width, video_height
+
+    longest_edge = max(video_width, video_height)
+    if longest_edge <= max_dimension:
+        return video_width, video_height
+
+    scale = max_dimension / longest_edge
+    scaled_width = _even_dimension(video_width * scale)
+    scaled_height = _even_dimension(video_height * scale)
+    logger.info(
+        "render size limited by video_max_dimension: "
+        f"{video_width}x{video_height} -> {scaled_width}x{scaled_height}"
+    )
+    return scaled_width, scaled_height
 
 
 def _get_required_video_duration(audio_duration: float) -> float:
@@ -567,8 +611,7 @@ def combine_videos(
     source_clip_duration = max_clip_duration * normalized_clip_speed
     output_dir = os.path.dirname(combined_video_path)
 
-    aspect = VideoAspect(video_aspect)
-    video_width, video_height = aspect.to_resolution()
+    video_width, video_height = _resolve_render_size(video_aspect)
 
     processed_clips = []
     subclipped_items = []
@@ -966,8 +1009,7 @@ def generate_video(
     output_file: str,
     params: VideoParams,
 ):
-    aspect = VideoAspect(params.video_aspect)
-    video_width, video_height = aspect.to_resolution()
+    video_width, video_height = _resolve_render_size(params.video_aspect)
 
     logger.info(f"generating video: {video_width} x {video_height}")
     logger.info(f"  ① video: {video_path}")

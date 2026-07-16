@@ -230,6 +230,32 @@ class TestVideoService(unittest.TestCase):
 
         self.assertEqual(vd._get_configured_video_codec(), "libx264")
 
+    def test_resolve_render_size_limits_long_edge_and_keeps_even_dimensions(self):
+        config.app["video_max_dimension"] = 1280
+
+        self.assertEqual(
+            vd._resolve_render_size(vd.VideoAspect.portrait),
+            (720, 1280),
+        )
+        self.assertEqual(
+            vd._resolve_render_size(vd.VideoAspect.landscape),
+            (1280, 720),
+        )
+        self.assertEqual(
+            vd._resolve_render_size(vd.VideoAspect.square),
+            (1080, 1080),
+        )
+
+    def test_get_configured_video_fps_clamps_hosted_values(self):
+        config.app["video_fps"] = 8
+        self.assertEqual(vd._get_configured_video_fps(), 12)
+
+        config.app["video_fps"] = 24
+        self.assertEqual(vd._get_configured_video_fps(), 24)
+
+        config.app["video_fps"] = 120
+        self.assertEqual(vd._get_configured_video_fps(), 60)
+
     def test_ffmpeg_encoder_exists_falls_back_when_probe_fails(self):
         """
         Windows 上用户配置的 ffmpeg 可能因为路径损坏、权限或杀软拦截而无法

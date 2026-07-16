@@ -308,6 +308,8 @@ def _apply_runtime_env_overrides():
         "MPT_SUBTITLE_FALLBACK_TO_WHISPER",
         "SUBTITLE_FALLBACK_TO_WHISPER",
     )
+    _set_int_from_env(app, "video_max_dimension", "MPT_VIDEO_MAX_DIMENSION")
+    _set_int_from_env(app, "video_fps", "MPT_VIDEO_FPS")
 
     _set_str_from_env(app, "llm_provider", "MPT_LLM_PROVIDER", "LLM_PROVIDER")
     _set_str_from_env(app, "moonshot_api_key", "MOONSHOT_API_KEY", "KIMI_API_KEY")

@@ -226,6 +226,10 @@ subtitle_fallback_to_whisper = false
 # Available values: "libx264", "h264_nvenc", "h264_amf", "h264_qsv",
 # "h264_mf", "h264_videotoolbox".
 # video_codec = "libx264"
+# Hosted CPU-friendly render settings. Set video_max_dimension = 0 to keep the
+# native 1080p/1920p dimensions, or use 1280 for 720x1280 portrait output.
+video_max_dimension = 1280
+video_fps = 24
 
 # -----------------------------------------------------------------------------
 # Storage and Task Runtime / 存储与任务运行
