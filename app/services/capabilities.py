@@ -25,6 +25,13 @@ def _option(label: str, value, enabled: bool = True, **extra):
     return {"label": label, "value": value, "enabled": enabled, **extra}
 
 
+def _int_config(key: str, default: int = 0) -> int:
+    try:
+        return int(config.app.get(key) or default)
+    except (TypeError, ValueError):
+        return default
+
+
 def _fonts() -> list[dict]:
     font_dir = utils.font_dir()
     if not os.path.isdir(font_dir):
@@ -213,5 +220,10 @@ def build_capabilities() -> dict:
             "paragraph_number": {"min": 1, "max": 10, "step": 1, "default": 1},
             "video_script_prompt": {"max_length": 2000},
             "custom_system_prompt": {"max_length": 8000},
+        },
+        "runtime": {
+            "video_ffmpeg_clip_writer": config.app.get("video_ffmpeg_clip_writer") is True,
+            "video_max_dimension": _int_config("video_max_dimension", 0),
+            "video_fps": _int_config("video_fps", 30),
         },
     }

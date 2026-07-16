@@ -20,6 +20,9 @@ class TestCapabilities(unittest.TestCase):
         config.app["pexels_api_keys"] = ["pexels-key"]
         config.app["pixabay_api_keys"] = []
         config.app["coverr_api_keys"] = []
+        config.app["video_ffmpeg_clip_writer"] = True
+        config.app["video_max_dimension"] = 1280
+        config.app["video_fps"] = 24
 
         data = capabilities.build_capabilities()
 
@@ -34,6 +37,14 @@ class TestCapabilities(unittest.TestCase):
         self.assertFalse(sources["pixabay"]["enabled"])
         self.assertTrue(sources["local"]["enabled"])
         self.assertIn("FadeIn", [mode["value"] for mode in data["transition_modes"]])
+        self.assertEqual(
+            data["runtime"],
+            {
+                "video_ffmpeg_clip_writer": True,
+                "video_max_dimension": 1280,
+                "video_fps": 24,
+            },
+        )
 
     def test_capabilities_do_not_require_remote_elevenlabs_call_without_key(self):
         config.elevenlabs["api_key"] = ""
