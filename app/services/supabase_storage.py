@@ -101,6 +101,8 @@ def create_signed_url(object_path: str, expires_in: int = 3600) -> str:
         return signed_url
     if not signed_url.startswith("/"):
         signed_url = f"/{signed_url}"
+    if signed_url.startswith("/object/"):
+        signed_url = f"/storage/v1{signed_url}"
     return f"{supabase_url}{signed_url}"
 
 
