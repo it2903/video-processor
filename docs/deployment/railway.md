@@ -49,7 +49,7 @@ OPENAI_API_KEY=<provider-key>
 REDIS_URL=<redis://... or rediss://...>
 SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<server-side-service-role-key>
-SUPABASE_STORAGE_BUCKET=generated-videos
+SUPABASE_STORAGE_BUCKET=mpt-videos
 ```
 
 Optional stock material keys:

@@ -447,7 +447,13 @@ def start(task_id, params: VideoParams, stop_at: str = "video"):
         f"task {task_id} finished, generated {len(final_video_paths)} videos."
     )
 
-    storage_results = supabase_storage.upload_task_videos(task_id, final_video_paths)
+    storage_results = supabase_storage.upload_task_videos(
+        task_id,
+        final_video_paths,
+        workspace_id=getattr(params, "workspace_id", None),
+        user_id=getattr(params, "user_id", None),
+        run_id=getattr(params, "run_id", None),
+    )
     stored_video_urls = [
         result.get("url", "")
         for result in storage_results

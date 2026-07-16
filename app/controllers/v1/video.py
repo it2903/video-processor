@@ -15,6 +15,7 @@ from app.controllers.manager.base_manager import TaskQueueFullError
 from app.controllers.manager.memory_manager import InMemoryTaskManager
 from app.controllers.manager.redis_manager import RedisTaskManager
 from app.controllers.v1.base import new_router
+from app.models import const
 from app.models.exception import HttpException
 from app.models.schema import (
     AudioRequest,
@@ -27,11 +28,14 @@ from app.models.schema import (
     TaskResponse,
     TaskVideoRequest,
     VideoMaterialUploadResponse,
-    VideoMaterialRetrieveResponse
+    VideoMaterialRetrieveResponse,
+    VideoRunCreateRequest,
 )
 from app.services import bgm as bgm_service
+from app.services import capabilities as capabilities_service
 from app.services import state as sm
 from app.services import task as tm
+from app.services import video_runs as video_run_service
 from app.utils import file_security, utils
 
 # 认证依赖项
@@ -96,6 +100,7 @@ def _resolve_path_within_directory(base_dir: str, unsafe_path: str, request_id: 
             message=f"{request_id}: invalid file path",
         )
 
+
 def _task_file_to_uri(file: str, endpoint: str, task_dir: str, request_id: str) -> str:
     if not isinstance(file, str):
         return file
@@ -119,6 +124,203 @@ def _task_file_to_uri(file: str, endpoint: str, task_dir: str, request_id: str) 
     if endpoint:
         return f"{endpoint.rstrip('/')}/{uri_path}"
     return f"/{uri_path}"
+
+
+@router.get("/capabilities", summary="Get safe MPT generation capabilities")
+def get_capabilities(request: Request):
+    return utils.get_response(200, capabilities_service.build_capabilities())
+
+
+@router.post("/video-runs", summary="Create and persist a video generation run")
+def create_video_run(request: Request, body: VideoRunCreateRequest):
+    task_id = utils.get_uuid()
+    run_id = utils.get_uuid()
+    request_id = body.request_id or base.get_task_id(request)
+    params = body.params
+    params.workspace_id = body.workspace_id
+    params.user_id = body.user_id
+    params.run_id = run_id
+
+    run_payload = video_run_service.build_run_insert_payload(
+        workspace_id=body.workspace_id,
+        user_id=body.user_id,
+        created_by=body.user_id,
+        title=body.title or params.video_subject,
+        request_id=request_id,
+        task_id=task_id,
+        params=params,
+        parent_run_id=body.parent_run_id,
+        run_id=run_id,
+    )
+    run = video_run_service.create_run_record(run_payload)
+    video_run_service.record_event(
+        run_id=run_id,
+        workspace_id=body.workspace_id,
+        user_id=body.user_id,
+        event_type="video_run_created",
+        event_status="started",
+        input_summary={
+            "video_subject": params.video_subject,
+            "video_source": params.video_source,
+            "video_aspect": str(params.video_aspect),
+        },
+    )
+
+    try:
+        sm.state.update_task(
+            task_id,
+            state=const.TASK_STATE_PROCESSING,
+            progress=0,
+            mpt_run_id=run_id,
+        )
+        task_manager.add_task(tm.start, task_id=task_id, params=params, stop_at="video")
+        video_run_service.supabase_domain.update_row(
+            video_run_service.RUNS_TABLE,
+            run_id,
+            {"status": "running", "started_at": video_run_service._now()},
+        )
+    except TaskQueueFullError as e:
+        sm.state.delete_task(task_id)
+        video_run_service.supabase_domain.update_row(
+            video_run_service.RUNS_TABLE,
+            run_id,
+            {"status": "failed", "error_code": "queue_full", "error_message": str(e)},
+        )
+        video_run_service.record_event(
+            run_id=run_id,
+            workspace_id=body.workspace_id,
+            user_id=body.user_id,
+            event_type="video_run_queue_rejected",
+            event_status="failed",
+            error_code="queue_full",
+            error_message=str(e),
+        )
+        raise HttpException(
+            task_id=task_id,
+            status_code=429,
+            message=f"{request_id}: {str(e)}",
+        )
+
+    response = {
+        "run": {**run, "status": "running"},
+        "mpt_run_id": run_id,
+        "mpt_task_id": task_id,
+        "persistence": {
+            "enabled": video_run_service.supabase_domain.is_configured(),
+        },
+    }
+    return utils.get_response(200, response)
+
+
+@router.get("/video-runs", summary="List persisted video generation runs")
+def list_video_runs(
+    request: Request,
+    workspace_id: str = Query(..., min_length=1, max_length=64),
+    user_id: str | None = Query(None, max_length=64),
+    status: str | None = Query(None, max_length=64),
+    limit: int = Query(20, ge=1, le=100),
+):
+    runs = video_run_service.list_runs(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        status=status,
+        limit=limit,
+    )
+    return utils.get_response(
+        200,
+        {
+            "runs": runs,
+            "persistence": {
+                "enabled": video_run_service.supabase_domain.is_configured(),
+            },
+        },
+    )
+
+
+@router.get("/video-runs/{run_id}", summary="Get a persisted video generation run")
+def get_video_run(
+    request: Request,
+    run_id: str = Path(..., description="MPT video run ID"),
+):
+    run = video_run_service.get_run(run_id)
+    if not run:
+        task = sm.state.get_task(run_id)
+        if not task:
+            raise HttpException(
+                task_id=base.get_task_id(request),
+                status_code=404,
+                message="video run not found",
+            )
+        return utils.get_response(
+            200,
+            {
+                "run": {
+                    "id": run_id,
+                    "mpt_task_id": run_id,
+                    "status": "completed"
+                    if task.get("state") == const.TASK_STATE_COMPLETE
+                    else "failed"
+                    if task.get("state") == const.TASK_STATE_FAILED
+                    else "running",
+                    "progress": task.get("progress", 0),
+                },
+                "task": task,
+                "persistence": {"enabled": False},
+            },
+        )
+
+    task = sm.state.get_task(run.get("mpt_task_id", ""))
+    synced_run = video_run_service.sync_task_to_run(run, task)
+    return utils.get_response(
+        200,
+        {
+            "run": synced_run,
+            "task": task,
+            "persistence": {
+                "enabled": video_run_service.supabase_domain.is_configured(),
+            },
+        },
+    )
+
+
+@router.post("/video-runs/{run_id}/rerun", summary="Create a new video run from a previous run")
+def rerun_video_run(
+    request: Request,
+    run_id: str = Path(..., description="MPT video run ID"),
+):
+    run = video_run_service.get_run(run_id)
+    if not run:
+        raise HttpException(
+            task_id=base.get_task_id(request),
+            status_code=404,
+            message="video run not found",
+        )
+    params_payload = run.get("effective_params") or run.get("request_payload") or {}
+    body = VideoRunCreateRequest(
+        workspace_id=run["workspace_id"],
+        user_id=run.get("user_id") or "",
+        title=f"{run.get('title') or 'Video MPT'} (rerun)",
+        parent_run_id=run_id,
+        params=TaskVideoRequest(**params_payload),
+    )
+    return create_video_run(request, body)
+
+
+@router.delete("/video-runs/{run_id}", summary="Soft delete a persisted video generation run")
+def delete_video_run(
+    request: Request,
+    run_id: str = Path(..., description="MPT video run ID"),
+    user_id: str | None = Query(None, max_length=64),
+):
+    run = video_run_service.get_run(run_id)
+    if not run:
+        raise HttpException(
+            task_id=base.get_task_id(request),
+            status_code=404,
+            message="video run not found",
+        )
+    updated = video_run_service.mark_run_deleted(run, deleted_by=user_id)
+    return utils.get_response(200, {"run": updated})
 
 
 @router.post("/videos", response_model=TaskResponse, summary="Generate a short video")

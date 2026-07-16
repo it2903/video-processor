@@ -86,14 +86,39 @@ def upload_file(local_path: str, object_path: str) -> dict:
     }
 
 
-def upload_task_videos(task_id: str, video_paths: list[str]) -> list[dict]:
+def _task_video_object_path(
+    task_id: str,
+    filename: str,
+    workspace_id: str | None = None,
+    user_id: str | None = None,
+    run_id: str | None = None,
+) -> str:
+    if workspace_id and run_id:
+        owner_segment = user_id or "system"
+        return f"{workspace_id}/{owner_segment}/{run_id}/videos/{filename}"
+    return f"tasks/{task_id}/{filename}"
+
+
+def upload_task_videos(
+    task_id: str,
+    video_paths: list[str],
+    workspace_id: str | None = None,
+    user_id: str | None = None,
+    run_id: str | None = None,
+) -> list[dict]:
     if not is_configured():
         return []
 
     uploads = []
     for video_path in video_paths:
         filename = Path(video_path).name
-        object_path = f"tasks/{task_id}/{filename}"
+        object_path = _task_video_object_path(
+            task_id,
+            filename,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            run_id=run_id,
+        )
         try:
             result = upload_file(video_path, object_path)
             if result:

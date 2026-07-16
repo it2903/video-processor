@@ -57,7 +57,7 @@ OPENAI_API_KEY=<provider-key>
 REDIS_URL=<redis://... or rediss://...>
 SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<server-side-service-role-key>
-SUPABASE_STORAGE_BUCKET=generated-videos
+SUPABASE_STORAGE_BUCKET=mpt-videos
 ```
 
 The backend Docker image already sets `MPT_REQUIRE_API_KEY=true`. If
@@ -85,7 +85,7 @@ keep local API paths instead of direct public Supabase URLs.
 
 ## Supabase Storage
 
-Create a bucket named `generated-videos`, or change
+Create a bucket named `mpt-videos`, or change
 `SUPABASE_STORAGE_BUCKET`. Use the service role key only on the backend. Do not
 send it to the browser or to the frontend bundle.
 

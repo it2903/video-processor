@@ -156,6 +156,16 @@ class TestScriptPromptOptions(unittest.TestCase):
                 video_script_prompt="x" * (llm.MAX_SCRIPT_PROMPT_LENGTH + 1),
             )
 
+    def test_video_script_request_accepts_optional_trace_scope(self):
+        request = VideoScriptRequest(
+            video_subject="Café",
+            workspace_id="11111111-1111-1111-1111-111111111111",
+            user_id="22222222-2222-2222-2222-222222222222",
+        )
+
+        self.assertEqual(request.workspace_id, "11111111-1111-1111-1111-111111111111")
+        self.assertEqual(request.user_id, "22222222-2222-2222-2222-222222222222")
+
 
 class TestLLMConnection(unittest.TestCase):
     def test_connection_sends_one_minimal_request(self):

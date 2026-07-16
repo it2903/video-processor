@@ -75,8 +75,8 @@ class VideoParams(BaseModel):
     video_subject: str
     video_script: str = ""  # Script used to generate the video
     video_terms: Optional[str | list] = None  # Keywords used to generate the video
-    video_aspect: Optional[VideoAspect] = VideoAspect.portrait.value
-    video_concat_mode: Optional[VideoConcatMode] = VideoConcatMode.random.value
+    video_aspect: Optional[VideoAspect] = VideoAspect.portrait
+    video_concat_mode: Optional[VideoConcatMode] = VideoConcatMode.random
     video_transition_mode: Optional[VideoTransitionMode] = None
     video_clip_duration: Optional[int] = 5
     video_clip_speed: Optional[float] = 1.0
@@ -113,6 +113,9 @@ class VideoParams(BaseModel):
     paragraph_number: int = Field(default=1, ge=1, le=10)
     video_script_prompt: str = Field(default="", max_length=2000)
     custom_system_prompt: str = Field(default="", max_length=8000)
+    workspace_id: Optional[str] = Field(default=None, max_length=64)
+    user_id: Optional[str] = Field(default=None, max_length=64)
+    run_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class SubtitleRequest(BaseModel):
@@ -164,6 +167,9 @@ class VideoScriptParams:
     paragraph_number: int = Field(default=1, ge=1, le=10)
     video_script_prompt: str = Field(default="", max_length=2000)
     custom_system_prompt: str = Field(default="", max_length=8000)
+    workspace_id: Optional[str] = Field(default=None, max_length=64)
+    user_id: Optional[str] = Field(default=None, max_length=64)
+    run_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class VideoTermsParams:
@@ -182,6 +188,9 @@ class VideoTermsParams:
     )
     amount: Optional[int] = 5
     match_materials_to_script: bool = False
+    workspace_id: Optional[str] = Field(default=None, max_length=64)
+    user_id: Optional[str] = Field(default=None, max_length=64)
+    run_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class VideoSocialMetadataParams:
@@ -198,6 +207,9 @@ class VideoSocialMetadataParams:
     video_script: Optional[str] = Field(default="", max_length=8000)
     language: Optional[str] = Field(default="auto", max_length=64)
     platform: Optional[str] = Field(default="tiktok", max_length=64)
+    workspace_id: Optional[str] = Field(default=None, max_length=64)
+    user_id: Optional[str] = Field(default=None, max_length=64)
+    run_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class BaseResponse(BaseModel):
@@ -208,6 +220,15 @@ class BaseResponse(BaseModel):
 
 class TaskVideoRequest(VideoParams, BaseModel):
     pass
+
+
+class VideoRunCreateRequest(BaseModel):
+    workspace_id: str = Field(max_length=64)
+    user_id: str = Field(max_length=64)
+    title: Optional[str] = Field(default=None, max_length=240)
+    request_id: Optional[str] = Field(default=None, max_length=128)
+    parent_run_id: Optional[str] = Field(default=None, max_length=64)
+    params: TaskVideoRequest
 
 
 class TaskQueryRequest(BaseModel):

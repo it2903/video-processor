@@ -255,7 +255,7 @@ max_queued_tasks = 100
 # must only live server-side.
 supabase_url = ""
 supabase_service_role_key = ""
-supabase_storage_bucket = "generated-videos"
+supabase_storage_bucket = "mpt-videos"
 supabase_storage_public = false
 supabase_public_url_base = ""
 
