@@ -13,8 +13,21 @@ class SupabaseStorageError(RuntimeError):
     pass
 
 
+CANONICAL_VIDEO_BUCKET = "mpt-videos"
+
+
 def _clean_url(value: str) -> str:
     return (value or "").strip().rstrip("/")
+
+
+def storage_bucket() -> str:
+    configured_bucket = str(config.app.get("supabase_storage_bucket") or "").strip()
+    if configured_bucket and configured_bucket != CANONICAL_VIDEO_BUCKET:
+        logger.warning(
+            "ignoring non-canonical MPT video storage bucket: "
+            f"{configured_bucket}; using {CANONICAL_VIDEO_BUCKET}"
+        )
+    return CANONICAL_VIDEO_BUCKET
 
 
 def _is_public_bucket() -> bool:
@@ -25,7 +38,7 @@ def is_configured() -> bool:
     return bool(
         _clean_url(config.app.get("supabase_url", ""))
         and config.app.get("supabase_service_role_key", "")
-        and config.app.get("supabase_storage_bucket", "")
+        and storage_bucket()
     )
 
 
@@ -33,7 +46,7 @@ def _object_url(object_path: str) -> str:
     if not _is_public_bucket():
         return ""
 
-    bucket = config.app.get("supabase_storage_bucket", "")
+    bucket = storage_bucket()
     custom_base_url = _clean_url(config.app.get("supabase_public_url_base", ""))
     encoded_path = quote(object_path, safe="/")
 
@@ -53,7 +66,7 @@ def upload_file(local_path: str, object_path: str) -> dict:
 
     supabase_url = _clean_url(config.app.get("supabase_url", ""))
     service_role_key = config.app.get("supabase_service_role_key", "")
-    bucket = config.app.get("supabase_storage_bucket", "")
+    bucket = storage_bucket()
     encoded_path = quote(object_path, safe="/")
     upload_url = f"{supabase_url}/storage/v1/object/{bucket}/{encoded_path}"
     content_type = mimetypes.guess_type(local_path)[0] or "application/octet-stream"

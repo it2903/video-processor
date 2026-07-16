@@ -25,7 +25,7 @@ class TestCapabilities(unittest.TestCase):
         config.app["video_fps"] = 24
         config.app["supabase_url"] = "https://example.supabase.co"
         config.app["supabase_service_role_key"] = "service-role"
-        config.app["supabase_storage_bucket"] = "mpt-videos"
+        config.app["supabase_storage_bucket"] = "generated-videos"
 
         data = capabilities.build_capabilities()
 

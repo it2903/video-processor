@@ -226,6 +226,6 @@ def build_capabilities() -> dict:
             "video_max_dimension": _int_config("video_max_dimension", 0),
             "video_fps": _int_config("video_fps", 30),
             "supabase_storage_configured": supabase_storage.is_configured(),
-            "supabase_storage_bucket": config.app.get("supabase_storage_bucket") or "",
+            "supabase_storage_bucket": supabase_storage.storage_bucket(),
         },
     }
