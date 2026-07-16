@@ -136,6 +136,10 @@ def _resolve_render_size(video_aspect: VideoAspect | str) -> tuple[int, int]:
     return scaled_width, scaled_height
 
 
+def _is_ffmpeg_clip_writer_enabled() -> bool:
+    return config.app.get("video_ffmpeg_clip_writer") is True
+
+
 def _get_required_video_duration(audio_duration: float) -> float:
     """
     返回视频素材拼接的目标时长。
@@ -355,6 +359,86 @@ def _write_videofile_with_codec_fallback(clip, output_file: str, codec: str, **k
             reason=str(exc),
             **kwargs,
         )
+
+
+def _assert_non_empty_video_file(output_file: str):
+    if not os.path.isfile(output_file) or os.path.getsize(output_file) <= 0:
+        raise RuntimeError(f"video writer produced an empty output: {output_file}")
+
+
+def _write_subclip_with_ffmpeg(
+    *,
+    source_file: str,
+    output_file: str,
+    start_time: float,
+    source_duration: float,
+    video_width: int,
+    video_height: int,
+    playback_speed: float,
+    codec: str,
+    threads: int,
+) -> str:
+    """
+    Write a normalized temp clip directly with FFmpeg.
+
+    Hosted CPU containers have been more reliable when simple, no-transition
+    clips bypass MoviePy's per-clip writer. Transition modes still use MoviePy
+    because their effects are implemented there.
+    """
+    vf_parts = [
+        f"scale={video_width}:{video_height}:force_original_aspect_ratio=decrease",
+        f"pad={video_width}:{video_height}:(ow-iw)/2:(oh-ih)/2:color=black",
+        "setsar=1",
+    ]
+    if playback_speed != 1.0:
+        vf_parts.append(f"setpts={1 / playback_speed:.8f}*PTS")
+
+    def run_writer(effective_codec: str) -> str:
+        command = [
+            utils.get_ffmpeg_binary(),
+            "-y",
+            "-ss",
+            f"{start_time:.3f}",
+            "-t",
+            f"{source_duration:.3f}",
+            "-i",
+            source_file,
+            "-an",
+            "-vf",
+            ",".join(vf_parts),
+            "-r",
+            str(fps),
+            "-c:v",
+            effective_codec,
+            "-threads",
+            str(threads or 2),
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            output_file,
+        ]
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            error_message = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(error_message or "ffmpeg clip writer failed")
+        _assert_non_empty_video_file(output_file)
+        return effective_codec
+
+    effective_codec = _get_effective_video_codec(codec)
+    try:
+        return run_writer(effective_codec)
+    except Exception as exc:
+        if effective_codec == _DEFAULT_VIDEO_CODEC:
+            raise
+        result_codec = run_writer(_DEFAULT_VIDEO_CODEC)
+        _disable_runtime_video_codec(effective_codec, str(exc))
+        return result_codec
 
 
 def _escape_ffmpeg_concat_path(file_path: str) -> str:
@@ -598,6 +682,10 @@ def combine_videos(
 
     # 兼容 API 直接调用时未传转场模式的情况，避免后续访问 .value 时崩溃。
     transition_value = getattr(video_transition_mode, "value", video_transition_mode)
+    use_ffmpeg_clip_writer = (
+        _is_ffmpeg_clip_writer_enabled()
+        and transition_value in (None, VideoTransitionMode.none.value)
+    )
     normalized_clip_speed = utils.normalize_clip_speed(clip_speed)
     if normalized_clip_speed != 1.0:
         # 只记录一次最终生效值，既方便定位 API 越界参数被归一化的问题，
@@ -666,6 +754,38 @@ def combine_videos(
         )
         
         try:
+            clip_file = f"{output_dir}/temp-clip-{i+1}.mp4"
+            if use_ffmpeg_clip_writer:
+                source_duration = (
+                    subclipped_item.end_time - subclipped_item.start_time
+                )
+                _write_subclip_with_ffmpeg(
+                    source_file=subclipped_item.file_path,
+                    output_file=clip_file,
+                    start_time=subclipped_item.start_time,
+                    source_duration=source_duration,
+                    video_width=video_width,
+                    video_height=video_height,
+                    playback_speed=normalized_clip_speed,
+                    codec=_get_configured_video_codec(),
+                    threads=threads,
+                )
+                clip_duration_saved = min(
+                    source_duration / normalized_clip_speed,
+                    max_clip_duration,
+                )
+                processed_clips.append(
+                    SubClippedVideoClip(
+                        file_path=clip_file,
+                        duration=clip_duration_saved,
+                        width=video_width,
+                        height=video_height,
+                        source_file_path=subclipped_item.source_file_path,
+                    )
+                )
+                video_duration += clip_duration_saved
+                continue
+
             clip = _open_video_clip_quietly(subclipped_item.file_path).subclipped(
                 subclipped_item.start_time, subclipped_item.end_time
             )
@@ -727,8 +847,7 @@ def combine_videos(
             if clip.duration > max_clip_duration:
                 clip = clip.subclipped(0, max_clip_duration)
                 
-            # wirte clip to temp file
-            clip_file = f"{output_dir}/temp-clip-{i+1}.mp4"
+            # write clip to temp file
             _write_videofile_with_codec_fallback(
                 clip,
                 clip_file,

@@ -230,6 +230,9 @@ subtitle_fallback_to_whisper = false
 # native 1080p/1920p dimensions, or use 1280 for 720x1280 portrait output.
 video_max_dimension = 1280
 video_fps = 24
+# In hosted CPU containers, FFmpeg direct clip writing is more reliable for
+# simple videos without transitions. MoviePy remains used for transition modes.
+video_ffmpeg_clip_writer = true
 
 # -----------------------------------------------------------------------------
 # Storage and Task Runtime / 存储与任务运行

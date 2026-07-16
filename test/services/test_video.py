@@ -505,6 +505,64 @@ class TestVideoService(unittest.TestCase):
                 )
                 self.assertEqual(result, combined_video_path)
 
+    def test_combine_videos_uses_ffmpeg_clip_writer_when_enabled_without_transition(self):
+        """
+        Hosted deployments can bypass MoviePy temp-clip writing for simple
+        no-transition videos, which avoids corrupt intermediate MP4 files.
+        """
+        config.app["video_ffmpeg_clip_writer"] = True
+        config.app["video_max_dimension"] = 1280
+
+        class _FakeAudioClip:
+            duration = 2.9
+
+            def close(self):
+                pass
+
+        class _FakeVideoClip:
+            duration = 4.0
+            size = (1920, 1080)
+
+            def close(self):
+                pass
+
+        def _fake_run(command, capture_output, text, check):
+            Path(command[-1]).write_bytes(b"fake-mp4")
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            combined_video_path = os.path.join(temp_dir, "combined.mp4")
+
+            with (
+                patch.object(vd, "AudioFileClip", return_value=_FakeAudioClip()),
+                patch.object(vd, "_open_video_clip_quietly", return_value=_FakeVideoClip()),
+                patch.object(vd.subprocess, "run", side_effect=_fake_run) as run,
+                patch.object(vd, "_write_videofile_with_codec_fallback") as moviepy_write,
+                patch.object(vd, "concat_video_clips_with_ffmpeg") as concat_mock,
+                patch.object(vd, "delete_files"),
+            ):
+                result = vd.combine_videos(
+                    combined_video_path=combined_video_path,
+                    video_paths=["source.mp4"],
+                    audio_file=os.path.join(temp_dir, "audio.mp3"),
+                    video_aspect=vd.VideoAspect.portrait,
+                    video_concat_mode=vd.VideoConcatMode.sequential,
+                    video_transition_mode=None,
+                    max_clip_duration=3,
+                )
+
+        self.assertEqual(result, combined_video_path)
+        moviepy_write.assert_not_called()
+        self.assertEqual(run.call_count, 1)
+        command = run.call_args.args[0]
+        filter_arg = command[command.index("-vf") + 1]
+        self.assertIn("scale=720:1280", filter_arg)
+        self.assertIn("pad=720:1280", filter_arg)
+        self.assertIn("-an", command)
+        self.assertEqual(command[command.index("-ss") + 1], "0.000")
+        self.assertEqual(command[command.index("-t") + 1], "3.000")
+        self.assertEqual(concat_mock.call_args.kwargs["max_duration"], 2.9)
+
     def _capture_source_ranges_for_clip_speed(
         self,
         *,
