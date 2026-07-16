@@ -23,6 +23,9 @@ class TestCapabilities(unittest.TestCase):
         config.app["video_ffmpeg_clip_writer"] = True
         config.app["video_max_dimension"] = 1280
         config.app["video_fps"] = 24
+        config.app["supabase_url"] = "https://example.supabase.co"
+        config.app["supabase_service_role_key"] = "service-role"
+        config.app["supabase_storage_bucket"] = "mpt-videos"
 
         data = capabilities.build_capabilities()
 
@@ -43,6 +46,8 @@ class TestCapabilities(unittest.TestCase):
                 "video_ffmpeg_clip_writer": True,
                 "video_max_dimension": 1280,
                 "video_fps": 24,
+                "supabase_storage_configured": True,
+                "supabase_storage_bucket": "mpt-videos",
             },
         )
 

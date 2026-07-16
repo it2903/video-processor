@@ -7,7 +7,7 @@ from loguru import logger
 
 from app.config import config
 from app.models.schema import VideoAspect, VideoConcatMode, VideoTransitionMode
-from app.services import bgm, voice
+from app.services import bgm, supabase_storage, voice
 from app.utils import utils
 
 
@@ -225,5 +225,7 @@ def build_capabilities() -> dict:
             "video_ffmpeg_clip_writer": config.app.get("video_ffmpeg_clip_writer") is True,
             "video_max_dimension": _int_config("video_max_dimension", 0),
             "video_fps": _int_config("video_fps", 30),
+            "supabase_storage_configured": supabase_storage.is_configured(),
+            "supabase_storage_bucket": config.app.get("supabase_storage_bucket") or "",
         },
     }
