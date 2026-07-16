@@ -57,6 +57,53 @@ def _object_url(object_path: str) -> str:
     return f"{supabase_url}/storage/v1/object/public/{bucket}/{encoded_path}"
 
 
+def create_signed_url(object_path: str, expires_in: int = 3600) -> str:
+    if not is_configured() or not object_path:
+        return ""
+
+    supabase_url = _clean_url(config.app.get("supabase_url", ""))
+    service_role_key = config.app.get("supabase_service_role_key", "")
+    bucket = storage_bucket()
+    encoded_path = quote(object_path, safe="/")
+    sign_url = f"{supabase_url}/storage/v1/object/sign/{bucket}/{encoded_path}"
+    headers = {
+        "apikey": service_role_key,
+        "Authorization": f"Bearer {service_role_key}",
+        "Content-Type": "application/json",
+    }
+    try:
+        response = requests.post(
+            sign_url,
+            headers=headers,
+            json={"expiresIn": max(60, min(24 * 60 * 60, int(expires_in or 3600)))},
+            timeout=(10, 30),
+        )
+    except requests.RequestException as exc:
+        logger.warning(f"failed to create Supabase signed URL: {exc}")
+        return ""
+
+    if response.status_code not in {200, 201}:
+        logger.warning(
+            "failed to create Supabase signed URL: "
+            f"status={response.status_code}, body={response.text[:300]}"
+        )
+        return ""
+
+    try:
+        payload = response.json()
+    except ValueError:
+        return ""
+
+    signed_url = str(payload.get("signedURL") or payload.get("signed_url") or "")
+    if not signed_url:
+        return ""
+    if signed_url.startswith("http://") or signed_url.startswith("https://"):
+        return signed_url
+    if not signed_url.startswith("/"):
+        signed_url = f"/{signed_url}"
+    return f"{supabase_url}{signed_url}"
+
+
 def upload_file(local_path: str, object_path: str) -> dict:
     if not is_configured():
         return {}

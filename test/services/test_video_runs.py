@@ -98,3 +98,36 @@ class TestVideoRuns(unittest.TestCase):
         self.assertEqual(event_payload["workspace_id"], "11111111-1111-1111-1111-111111111111")
         self.assertEqual(usage_payload["operation"], "script_generation")
         self.assertEqual(usage_payload["usage_source"], "estimated")
+
+    def test_get_run_attaches_signed_video_artifacts(self):
+        run = {
+            "id": "33333333-3333-3333-3333-333333333333",
+            "workspace_id": "11111111-1111-1111-1111-111111111111",
+            "status": "completed",
+        }
+        artifact = {
+            "id": "artifact-1",
+            "run_id": run["id"],
+            "storage_bucket": "mpt-videos",
+            "storage_path": f"{run['workspace_id']}/user/{run['id']}/videos/final-1.mp4",
+            "original_url": "",
+            "file_name": "final-1.mp4",
+        }
+
+        with (
+            patch.object(video_runs.supabase_domain, "select_row", return_value=run),
+            patch.object(video_runs.supabase_domain, "select_rows", return_value=[artifact]),
+            patch.object(
+                video_runs.supabase_storage,
+                "create_signed_url",
+                return_value="https://signed.example/final-1.mp4",
+            ),
+        ):
+            result = video_runs.get_run(run["id"])
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["artifacts"][0]["file_name"], "final-1.mp4")
+        self.assertEqual(
+            result["artifacts"][0]["signed_url"],
+            "https://signed.example/final-1.mp4",
+        )

@@ -7,7 +7,7 @@ from app.config import config
 from app.models.llm_provider import DEFAULT_LLM_PROVIDER_ID, get_llm_provider
 from app.models import const
 from app.models.schema import TaskVideoRequest
-from app.services import capabilities, supabase_domain
+from app.services import capabilities, supabase_domain, supabase_storage
 
 
 RUNS_TABLE = "mpt_video_runs"
@@ -255,6 +255,62 @@ def _record_usage(run: dict[str, Any], task: dict[str, Any]) -> None:
     )
 
 
+def _artifact_response(row: dict[str, Any]) -> dict[str, Any]:
+    artifact = dict(row)
+    storage_path = str(artifact.get("storage_path") or "")
+    original_url = str(artifact.get("original_url") or "")
+    artifact["url"] = original_url
+    artifact["public_url"] = original_url
+    artifact["signed_url"] = (
+        original_url or supabase_storage.create_signed_url(storage_path)
+    )
+    return artifact
+
+
+def list_run_artifacts(run_id: str) -> list[dict[str, Any]]:
+    if not run_id:
+        return []
+    rows = supabase_domain.select_rows(
+        ARTIFACTS_TABLE,
+        {"run_id": f"eq.{run_id}", "deleted_at": "is.null"},
+        order="created_at.desc",
+    )
+    return [_artifact_response(row) for row in rows]
+
+
+def _attach_artifacts(run: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not run:
+        return run
+    return {**run, "artifacts": list_run_artifacts(str(run.get("id") or ""))}
+
+
+def _attach_artifacts_to_runs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not runs:
+        return []
+
+    run_ids = [str(run.get("id") or "") for run in runs if run.get("id")]
+    if not run_ids:
+        return runs
+
+    rows = supabase_domain.select_rows(
+        ARTIFACTS_TABLE,
+        {
+            "run_id": f"in.({','.join(run_ids)})",
+            "deleted_at": "is.null",
+        },
+        order="created_at.desc",
+    )
+    artifacts_by_run: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        run_id = str(row.get("run_id") or "")
+        artifacts_by_run.setdefault(run_id, []).append(_artifact_response(row))
+
+    return [
+        {**run, "artifacts": artifacts_by_run.get(str(run.get("id") or ""), [])}
+        for run in runs
+    ]
+
+
 def sync_task_to_run(run: dict[str, Any], task: dict[str, Any] | None) -> dict[str, Any]:
     if not task:
         return run
@@ -303,11 +359,11 @@ def sync_task_to_run(run: dict[str, Any], task: dict[str, Any] | None) -> dict[s
             _record_artifacts(run, task)
             _record_usage(run, task)
 
-    return {**run, **update_payload}
+    return _attach_artifacts({**run, **update_payload}) or {**run, **update_payload}
 
 
 def get_run(run_id: str) -> dict[str, Any] | None:
-    return supabase_domain.select_row(RUNS_TABLE, run_id)
+    return _attach_artifacts(supabase_domain.select_row(RUNS_TABLE, run_id))
 
 
 def list_runs(
@@ -325,12 +381,13 @@ def list_runs(
         query["user_id"] = f"eq.{user_id}"
     if status:
         query["status"] = f"eq.{status}"
-    return supabase_domain.select_rows(
+    runs = supabase_domain.select_rows(
         RUNS_TABLE,
         query,
         limit=max(1, min(limit, 100)),
         order="updated_at.desc",
     )
+    return _attach_artifacts_to_runs(runs)
 
 
 def mark_run_deleted(run: dict[str, Any], deleted_by: str | None) -> dict[str, Any]:
