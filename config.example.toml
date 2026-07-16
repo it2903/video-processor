@@ -211,6 +211,10 @@ mimo_tts_style_prompt = "请用自然、清晰、适合短视频旁白的语气�
 
 # Subtitle provider: "edge" or "whisper". Leave empty to skip generation.
 subtitle_provider = "edge"
+# When Edge subtitle timing fails, Whisper can be used as a fallback, but it
+# downloads/loads a large local model. Keep this false on small hosted
+# containers unless a Whisper model/GPU is explicitly provisioned.
+subtitle_fallback_to_whisper = false
 
 # FFmpeg is normally downloaded and detected automatically. If detection fails,
 # download it from https://www.gyan.dev/ffmpeg/builds/ and set the executable.

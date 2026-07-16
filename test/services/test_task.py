@@ -274,6 +274,62 @@ class TestTaskService(unittest.TestCase):
         create_subtitle.assert_not_called()
         whisper_create.assert_not_called()
 
+    def test_generate_subtitle_does_not_fallback_to_whisper_when_disabled(self):
+        task_id = "test-edge-no-whisper-fallback"
+        task_dir = utils.task_dir(task_id)
+        audio_file = os.path.join(task_dir, "audio.mp3")
+        Path(audio_file).write_bytes(b"fake audio")
+        params = VideoParams(
+            video_subject="hosted subtitles",
+            video_script="Hello world.",
+            subtitle_enabled=True,
+        )
+
+        try:
+            with (
+                patch.object(
+                    tm.config,
+                    "app",
+                    dict(
+                        tm.config.app,
+                        subtitle_provider="edge",
+                        subtitle_fallback_to_whisper=False,
+                    ),
+                ),
+                patch.object(tm.voice, "create_subtitle") as create_subtitle,
+                patch.object(tm.subtitle, "create") as whisper_create,
+            ):
+                subtitle_path = tm.generate_subtitle(
+                    task_id=task_id,
+                    params=params,
+                    video_script="Hello world.",
+                    sub_maker=object(),
+                    audio_file=audio_file,
+                )
+        finally:
+            shutil.rmtree(task_dir, ignore_errors=True)
+
+        self.assertEqual(subtitle_path, "")
+        create_subtitle.assert_called_once()
+        whisper_create.assert_not_called()
+
+    def test_start_marks_task_failed_when_generation_raises(self):
+        params = VideoParams(video_subject="unexpected failure")
+
+        with (
+            patch.object(tm.llm, "generate_script", side_effect=RuntimeError("boom")),
+            patch.object(tm.sm.state, "update_task") as update_task,
+        ):
+            result = tm.start("test-start-exception", params)
+
+        self.assertIsNone(result)
+        update_task.assert_any_call(
+            "test-start-exception",
+            state=tm.const.TASK_STATE_FAILED,
+            progress=0,
+            error="boom",
+        )
+
     @unittest.skipUnless(
         RUN_INTEGRATION_TESTS,
         "MPT_RUN_INTEGRATION_TESTS not set",

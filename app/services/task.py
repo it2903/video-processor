@@ -226,8 +226,15 @@ def generate_subtitle(task_id, params, video_script, sub_maker, audio_file):
             text=video_script, sub_maker=sub_maker, subtitle_file=subtitle_path
         )
         if not os.path.exists(subtitle_path):
-            subtitle_fallback = True
-            logger.warning("subtitle file not found, fallback to whisper")
+            subtitle_fallback = bool(config.app.get("subtitle_fallback_to_whisper", True))
+            if subtitle_fallback:
+                logger.warning("subtitle file not found, fallback to whisper")
+            else:
+                logger.warning(
+                    "subtitle file not found, skip whisper fallback because "
+                    "subtitle_fallback_to_whisper is disabled"
+                )
+                return ""
 
     if subtitle_provider == "whisper" or subtitle_fallback:
         subtitle.create(audio_file=audio_file, subtitle_file=subtitle_path)
@@ -339,7 +346,7 @@ def generate_final_videos(
     return final_video_paths, combined_video_paths
 
 
-def start(task_id, params: VideoParams, stop_at: str = "video"):
+def _start_impl(task_id, params: VideoParams, stop_at: str = "video"):
     logger.info(f"start task: {task_id}, stop_at: {stop_at}")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=5)
 
@@ -515,6 +522,20 @@ def start(task_id, params: VideoParams, stop_at: str = "video"):
         task_id, state=const.TASK_STATE_COMPLETE, progress=100, **kwargs
     )
     return kwargs
+
+
+def start(task_id, params: VideoParams, stop_at: str = "video"):
+    try:
+        return _start_impl(task_id, params, stop_at)
+    except Exception as exc:
+        logger.exception(f"task {task_id} failed with unexpected error")
+        sm.state.update_task(
+            task_id,
+            state=const.TASK_STATE_FAILED,
+            progress=0,
+            error=str(exc),
+        )
+        return None
 
 
 if __name__ == "__main__":

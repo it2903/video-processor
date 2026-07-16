@@ -302,6 +302,12 @@ def _apply_runtime_env_overrides():
     _set_str_from_env(app, "api_key", "MPT_API_KEY")
     _set_bool_from_env(app, "require_api_key", "MPT_REQUIRE_API_KEY")
     _set_str_from_env(app, "endpoint", "MPT_ENDPOINT", "MPT_APP_ENDPOINT")
+    _set_bool_from_env(
+        app,
+        "subtitle_fallback_to_whisper",
+        "MPT_SUBTITLE_FALLBACK_TO_WHISPER",
+        "SUBTITLE_FALLBACK_TO_WHISPER",
+    )
 
     _set_str_from_env(app, "llm_provider", "MPT_LLM_PROVIDER", "LLM_PROVIDER")
     _set_str_from_env(app, "moonshot_api_key", "MOONSHOT_API_KEY", "KIMI_API_KEY")
