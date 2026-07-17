@@ -116,7 +116,7 @@ class TestVideoRuns(unittest.TestCase):
 
         with (
             patch.object(video_runs.supabase_domain, "select_row", return_value=run),
-            patch.object(video_runs.supabase_domain, "select_rows", return_value=[artifact]),
+            patch.object(video_runs.supabase_domain, "select_rows", side_effect=[[artifact], []]),
             patch.object(
                 video_runs.supabase_storage,
                 "create_signed_url",
@@ -130,4 +130,91 @@ class TestVideoRuns(unittest.TestCase):
         self.assertEqual(
             result["artifacts"][0]["signed_url"],
             "https://signed.example/final-1.mp4",
+        )
+        self.assertEqual(result["events"], [])
+
+    def test_get_run_record_does_not_attach_artifacts(self):
+        run = {
+            "id": "33333333-3333-3333-3333-333333333333",
+            "workspace_id": "11111111-1111-1111-1111-111111111111",
+            "status": "running",
+        }
+
+        with (
+            patch.object(video_runs.supabase_domain, "select_row", return_value=run),
+            patch.object(video_runs, "list_run_artifacts") as list_run_artifacts,
+        ):
+            result = video_runs.get_run_record(run["id"])
+
+        self.assertEqual(result, run)
+        list_run_artifacts.assert_not_called()
+
+    def test_list_run_events_returns_events_in_creation_order(self):
+        rows = [
+            {"id": "event-1", "event_type": "script_started"},
+            {"id": "event-2", "event_type": "script_completed"},
+        ]
+
+        with patch.object(video_runs.supabase_domain, "select_rows", return_value=rows) as select_rows:
+            result = video_runs.list_run_events("33333333-3333-3333-3333-333333333333")
+
+        self.assertEqual(result[0]["id"], "event-1")
+        self.assertEqual(result[0]["event_type"], "script_started")
+        self.assertIn("status", result[0])
+        self.assertIn("stage", result[0])
+        self.assertIn("progress", result[0])
+        self.assertIn("message", result[0])
+        self.assertEqual(select_rows.call_args.args[0], "mpt_generation_events")
+        self.assertEqual(
+            select_rows.call_args.args[1],
+            {"run_id": "eq.33333333-3333-3333-3333-333333333333"},
+        )
+        self.assertEqual(select_rows.call_args.kwargs["order"], "created_at.asc")
+
+    def test_list_runs_attaches_generation_events_by_run(self):
+        runs = [
+            {
+                "id": "run-1",
+                "workspace_id": "11111111-1111-1111-1111-111111111111",
+                "status": "running",
+            },
+            {
+                "id": "run-2",
+                "workspace_id": "11111111-1111-1111-1111-111111111111",
+                "status": "completed",
+            },
+        ]
+        events = [
+            {
+                "id": "event-1",
+                "run_id": "run-1",
+                "event_type": "script_started",
+                "event_status": "started",
+                "metadata": {"progress": 10, "message": "Guion iniciado"},
+            },
+            {
+                "id": "event-2",
+                "run_id": "run-2",
+                "event_type": "video_run_completed",
+                "event_status": "succeeded",
+                "metadata": {"progress": 100, "message": "Video listo"},
+            },
+        ]
+
+        with patch.object(
+            video_runs.supabase_domain,
+            "select_rows",
+            side_effect=[runs, [], events],
+        ) as select_rows:
+            result = video_runs.list_runs(
+                workspace_id="11111111-1111-1111-1111-111111111111",
+                user_id="22222222-2222-2222-2222-222222222222",
+            )
+
+        self.assertEqual(result[0]["events"][0]["message"], "Guion iniciado")
+        self.assertEqual(result[1]["events"][0]["message"], "Video listo")
+        self.assertEqual(select_rows.call_args_list[2].args[0], "mpt_generation_events")
+        self.assertEqual(
+            select_rows.call_args_list[2].args[1],
+            {"run_id": "in.(run-1,run-2)"},
         )

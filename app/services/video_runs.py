@@ -278,6 +278,67 @@ def list_run_artifacts(run_id: str) -> list[dict[str, Any]]:
     return [_artifact_response(row) for row in rows]
 
 
+def _event_response(row: dict[str, Any]) -> dict[str, Any]:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    return {
+        **row,
+        "status": row.get("event_status"),
+        "stage": row.get("step_name"),
+        "progress": metadata.get("progress"),
+        "message": metadata.get("message") or row.get("error_message"),
+    }
+
+
+def list_run_events(
+    run_id: str,
+    *,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    if not run_id:
+        return []
+    query = {"run_id": f"eq.{run_id}"}
+    rows = supabase_domain.select_rows(
+        EVENTS_TABLE,
+        query,
+        limit=max(1, min(limit, 200)),
+        order="created_at.asc",
+    )
+    return [_event_response(row) for row in rows]
+
+
+def _attach_events(run: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not run:
+        return run
+    return {**run, "events": list_run_events(str(run.get("id") or ""))}
+
+
+def _attach_events_to_runs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not runs:
+        return []
+
+    run_ids = [str(run.get("id") or "") for run in runs if run.get("id")]
+    if not run_ids:
+        return runs
+
+    rows = supabase_domain.select_rows(
+        EVENTS_TABLE,
+        {"run_id": f"in.({','.join(run_ids)})"},
+        limit=max(1, min(len(run_ids) * 20, 1000)),
+        order="created_at.asc",
+    )
+    events_by_run: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        run_id = str(row.get("run_id") or "")
+        if not run_id:
+            continue
+        events_by_run.setdefault(run_id, []).append(_event_response(row))
+
+    return [
+        {**run, "events": events_by_run.get(str(run.get("id") or ""), [])}
+        for run in runs
+    ]
+
+
 def _attach_artifacts(run: dict[str, Any] | None) -> dict[str, Any] | None:
     if not run:
         return run
@@ -359,11 +420,17 @@ def sync_task_to_run(run: dict[str, Any], task: dict[str, Any] | None) -> dict[s
             _record_artifacts(run, task)
             _record_usage(run, task)
 
-    return _attach_artifacts({**run, **update_payload}) or {**run, **update_payload}
+    attached_run = _attach_artifacts({**run, **update_payload}) or {**run, **update_payload}
+    return _attach_events(attached_run) or attached_run
+
+
+def get_run_record(run_id: str) -> dict[str, Any] | None:
+    return supabase_domain.select_row(RUNS_TABLE, run_id)
 
 
 def get_run(run_id: str) -> dict[str, Any] | None:
-    return _attach_artifacts(supabase_domain.select_row(RUNS_TABLE, run_id))
+    run = _attach_artifacts(get_run_record(run_id))
+    return _attach_events(run)
 
 
 def list_runs(
@@ -387,7 +454,7 @@ def list_runs(
         limit=max(1, min(limit, 100)),
         order="updated_at.desc",
     )
-    return _attach_artifacts_to_runs(runs)
+    return _attach_events_to_runs(_attach_artifacts_to_runs(runs))
 
 
 def mark_run_deleted(run: dict[str, Any], deleted_by: str | None) -> dict[str, Any]:

@@ -62,3 +62,57 @@ class TestSupabaseDomainClient(unittest.TestCase):
             request.call_args.kwargs["headers"]["Prefer"],
             "resolution=merge-duplicates,return=representation",
         )
+
+    def test_select_rows_retries_transient_get_request_errors(self):
+        config.app["supabase_url"] = "https://example.supabase.co"
+        config.app["supabase_service_role_key"] = "service-secret"
+        response = Mock(status_code=200, text='[{"id":"run-1"}]')
+        response.json.return_value = [{"id": "run-1"}]
+
+        with (
+            patch.object(
+                supabase_domain.requests,
+                "request",
+                side_effect=[
+                    supabase_domain.requests.exceptions.SSLError("ssl eof"),
+                    response,
+                ],
+            ) as request,
+            patch.object(supabase_domain.time, "sleep") as sleep,
+        ):
+            result = supabase_domain.select_rows("mpt_video_runs")
+
+        self.assertEqual(result, [{"id": "run-1"}])
+        self.assertEqual(request.call_count, 2)
+        sleep.assert_called_once()
+
+    def test_select_rows_returns_empty_after_request_error(self):
+        config.app["supabase_url"] = "https://example.supabase.co"
+        config.app["supabase_service_role_key"] = "service-secret"
+
+        with (
+            patch.object(
+                supabase_domain.requests,
+                "request",
+                side_effect=supabase_domain.requests.exceptions.SSLError("ssl eof"),
+            ) as request,
+            patch.object(supabase_domain.time, "sleep"),
+        ):
+            result = supabase_domain.select_rows("mpt_video_artifacts")
+
+        self.assertEqual(result, [])
+        self.assertEqual(request.call_count, 3)
+
+    def test_insert_row_does_not_retry_request_errors(self):
+        config.app["supabase_url"] = "https://example.supabase.co"
+        config.app["supabase_service_role_key"] = "service-secret"
+
+        with patch.object(
+            supabase_domain.requests,
+            "request",
+            side_effect=supabase_domain.requests.exceptions.SSLError("ssl eof"),
+        ) as request:
+            result = supabase_domain.insert_row("mpt_generation_events", {"status": "queued"})
+
+        self.assertEqual(result, {})
+        self.assertEqual(request.call_count, 1)

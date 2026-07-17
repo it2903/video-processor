@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 from urllib.parse import quote
 
@@ -66,15 +67,26 @@ def _request(
     if not is_configured():
         return None
 
-    response = requests.request(
-        method,
-        _rest_url(table),
-        headers=_headers(prefer),
-        params=params or {},
-        json=json,
-        timeout=(10, 30),
-    )
-    return _decode_response(response)
+    attempts = 3 if method.upper() == "GET" else 1
+    for attempt in range(1, attempts + 1):
+        try:
+            response = requests.request(
+                method,
+                _rest_url(table),
+                headers=_headers(prefer),
+                params=params or {},
+                json=json,
+                timeout=(10, 30),
+            )
+            return _decode_response(response)
+        except requests.RequestException as exc:
+            if attempt >= attempts:
+                raise SupabaseDomainError(
+                    f"Supabase REST request failed: {exc}"
+                ) from exc
+            time.sleep(0.25 * attempt)
+
+    return None
 
 
 def _first_row(payload: Any) -> dict[str, Any]:

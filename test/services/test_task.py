@@ -330,6 +330,37 @@ class TestTaskService(unittest.TestCase):
             error="boom",
         )
 
+    def test_record_pipeline_event_uses_mpt_run_scope(self):
+        params = VideoParams(
+            video_subject="tracked video",
+            workspace_id="workspace-1",
+            user_id="user-1",
+            run_id="run-1",
+        )
+
+        with patch.object(tm.video_run_service, "record_event", return_value={}) as record_event:
+            tm.record_pipeline_event(
+                params,
+                event_type="script_started",
+                event_status="started",
+                step_name="script",
+                progress=5,
+                message="Preparando guion",
+            )
+
+        record_event.assert_called_once_with(
+            run_id="run-1",
+            workspace_id="workspace-1",
+            user_id="user-1",
+            event_type="script_started",
+            event_status="started",
+            step_name="script",
+            metadata={
+                "progress": 5,
+                "message": "Preparando guion",
+            },
+        )
+
     @unittest.skipUnless(
         RUN_INTEGRATION_TESTS,
         "MPT_RUN_INTEGRATION_TESTS not set",

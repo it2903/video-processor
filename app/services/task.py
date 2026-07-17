@@ -16,10 +16,41 @@ from app.services import (
     twelvelabs,
     upload_post,
     video,
+    video_runs as video_run_service,
     voice,
 )
 from app.services import state as sm
 from app.utils import file_security, utils
+
+
+def record_pipeline_event(
+    params,
+    *,
+    event_type: str,
+    event_status: str = "succeeded",
+    step_name: str | None = None,
+    progress: int | float | None = None,
+    message: str | None = None,
+    metadata: dict | None = None,
+):
+    run_id = (getattr(params, "run_id", None) or "").strip()
+    workspace_id = (getattr(params, "workspace_id", None) or "").strip()
+    if not run_id or not workspace_id:
+        return {}
+    event_metadata = dict(metadata or {})
+    if progress is not None:
+        event_metadata["progress"] = progress
+    if message:
+        event_metadata["message"] = message
+    return video_run_service.record_event(
+        run_id=run_id,
+        workspace_id=workspace_id,
+        user_id=(getattr(params, "user_id", None) or None),
+        event_type=event_type,
+        event_status=event_status,
+        step_name=step_name,
+        metadata=event_metadata,
+    )
 
 
 def generate_script(task_id, params):
@@ -351,12 +382,36 @@ def _start_impl(task_id, params: VideoParams, stop_at: str = "video"):
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=5)
 
     # 1. Generate script
+    record_pipeline_event(
+        params,
+        event_type="script_started",
+        event_status="started",
+        step_name="script",
+        progress=5,
+        message="Preparando guion",
+    )
     video_script = generate_script(task_id, params)
     if not video_script or "Error: " in video_script:
         sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
+        record_pipeline_event(
+            params,
+            event_type="run_failed",
+            event_status="failed",
+            step_name="script",
+            progress=5,
+            message="No se pudo preparar el guion",
+        )
         return
 
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=10)
+    record_pipeline_event(
+        params,
+        event_type="script_completed",
+        step_name="script",
+        progress=10,
+        message="Guion preparado",
+        metadata={"script_length": len(video_script)},
+    )
 
     if stop_at == "script":
         sm.state.update_task(
@@ -367,10 +422,42 @@ def _start_impl(task_id, params: VideoParams, stop_at: str = "video"):
     # 2. Generate terms
     video_terms = ""
     if params.video_source != "local":
+        record_pipeline_event(
+            params,
+            event_type="terms_started",
+            event_status="started",
+            step_name="terms",
+            progress=15,
+            message="Preparando keywords visuales",
+        )
         video_terms = generate_terms(task_id, params, video_script)
         if not video_terms:
             sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
+            record_pipeline_event(
+                params,
+                event_type="run_failed",
+                event_status="failed",
+                step_name="terms",
+                progress=15,
+                message="No se pudieron preparar keywords visuales",
+            )
             return
+        record_pipeline_event(
+            params,
+            event_type="terms_completed",
+            step_name="terms",
+            progress=20,
+            message="Keywords visuales listas",
+            metadata={"terms_count": len(video_terms)},
+        )
+    else:
+        record_pipeline_event(
+            params,
+            event_type="terms_skipped",
+            step_name="terms",
+            progress=20,
+            message="Keywords omitidas por usar material local",
+        )
 
     save_script_data(task_id, video_script, video_terms, params)
 
@@ -383,14 +470,38 @@ def _start_impl(task_id, params: VideoParams, stop_at: str = "video"):
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=20)
 
     # 3. Generate audio
+    record_pipeline_event(
+        params,
+        event_type="audio_started",
+        event_status="started",
+        step_name="audio",
+        progress=25,
+        message="Generando narracion",
+    )
     audio_file, audio_duration, sub_maker = generate_audio(
         task_id, params, video_script
     )
     if not audio_file:
         sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
+        record_pipeline_event(
+            params,
+            event_type="run_failed",
+            event_status="failed",
+            step_name="audio",
+            progress=25,
+            message="No se pudo generar la narracion",
+        )
         return
 
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=30)
+    record_pipeline_event(
+        params,
+        event_type="audio_completed",
+        step_name="audio",
+        progress=30,
+        message="Narracion lista",
+        metadata={"audio_duration": audio_duration},
+    )
 
     if stop_at == "audio":
         sm.state.update_task(
@@ -402,9 +513,34 @@ def _start_impl(task_id, params: VideoParams, stop_at: str = "video"):
         return {"audio_file": audio_file, "audio_duration": audio_duration}
 
     # 4. Generate subtitle
+    if params.subtitle_enabled:
+        record_pipeline_event(
+            params,
+            event_type="subtitle_started",
+            event_status="started",
+            step_name="subtitle",
+            progress=35,
+            message="Generando subtitulos",
+        )
+    else:
+        record_pipeline_event(
+            params,
+            event_type="subtitle_skipped",
+            step_name="subtitle",
+            progress=40,
+            message="Subtitulos desactivados",
+        )
     subtitle_path = generate_subtitle(
         task_id, params, video_script, sub_maker, audio_file
     )
+    if params.subtitle_enabled:
+        record_pipeline_event(
+            params,
+            event_type="subtitle_completed",
+            step_name="subtitle",
+            progress=40,
+            message="Subtitulos listos" if subtitle_path else "Subtitulos omitidos por proveedor",
+        )
 
     if stop_at == "subtitle":
         sm.state.update_task(
@@ -418,12 +554,36 @@ def _start_impl(task_id, params: VideoParams, stop_at: str = "video"):
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=40)
 
     # 5. Get video materials
+    record_pipeline_event(
+        params,
+        event_type="materials_started",
+        event_status="started",
+        step_name="materials",
+        progress=45,
+        message="Buscando visuales",
+    )
     downloaded_videos = get_video_materials(
         task_id, params, video_terms, audio_duration
     )
     if not downloaded_videos:
         sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
+        record_pipeline_event(
+            params,
+            event_type="run_failed",
+            event_status="failed",
+            step_name="materials",
+            progress=45,
+            message="No se encontraron visuales",
+        )
         return
+    record_pipeline_event(
+        params,
+        event_type="materials_completed",
+        step_name="materials",
+        progress=50,
+        message="Visuales listos",
+        metadata={"materials_count": len(downloaded_videos)},
+    )
 
     if stop_at == "materials":
         sm.state.update_task(
@@ -442,18 +602,50 @@ def _start_impl(task_id, params: VideoParams, stop_at: str = "video"):
         params.video_concat_mode = VideoConcatMode(params.video_concat_mode)
 
     # 6. Generate final videos
+    record_pipeline_event(
+        params,
+        event_type="render_started",
+        event_status="started",
+        step_name="render",
+        progress=55,
+        message="Renderizando video",
+    )
     final_video_paths, combined_video_paths = generate_final_videos(
         task_id, params, downloaded_videos, audio_file, subtitle_path
     )
 
     if not final_video_paths:
         sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
+        record_pipeline_event(
+            params,
+            event_type="run_failed",
+            event_status="failed",
+            step_name="render",
+            progress=55,
+            message="No se pudo renderizar el video",
+        )
         return
+    record_pipeline_event(
+        params,
+        event_type="render_completed",
+        step_name="render",
+        progress=95,
+        message="Render listo",
+        metadata={"videos_count": len(final_video_paths)},
+    )
 
     logger.success(
         f"task {task_id} finished, generated {len(final_video_paths)} videos."
     )
 
+    record_pipeline_event(
+        params,
+        event_type="storage_started",
+        event_status="started",
+        step_name="storage",
+        progress=96,
+        message="Guardando video",
+    )
     storage_results = supabase_storage.upload_task_videos(
         task_id,
         final_video_paths,
@@ -470,6 +662,14 @@ def _start_impl(task_id, params: VideoParams, stop_at: str = "video"):
         stored_video_urls
         if len(stored_video_urls) == len(final_video_paths)
         else final_video_paths
+    )
+    record_pipeline_event(
+        params,
+        event_type="storage_completed",
+        step_name="storage",
+        progress=100,
+        message="Video guardado",
+        metadata={"stored_videos_count": len(stored_video_urls)},
     )
 
     # 7. Cross-post to social platforms (if enabled)
@@ -529,6 +729,14 @@ def start(task_id, params: VideoParams, stop_at: str = "video"):
         return _start_impl(task_id, params, stop_at)
     except Exception as exc:
         logger.exception(f"task {task_id} failed with unexpected error")
+        record_pipeline_event(
+            params,
+            event_type="run_failed",
+            event_status="failed",
+            step_name="unexpected_error",
+            progress=0,
+            message=str(exc),
+        )
         sm.state.update_task(
             task_id,
             state=const.TASK_STATE_FAILED,

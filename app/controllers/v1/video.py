@@ -283,6 +283,27 @@ def get_video_run(
     )
 
 
+@router.get("/video-runs/{run_id}/events", summary="List video generation run events")
+def list_video_run_events(
+    request: Request,
+    run_id: str = Path(..., description="MPT video run ID"),
+    limit: int = Query(100, ge=1, le=200),
+):
+    events = video_run_service.list_run_events(
+        run_id,
+        limit=limit,
+    )
+    return utils.get_response(
+        200,
+        {
+            "events": events,
+            "persistence": {
+                "enabled": video_run_service.supabase_domain.is_configured(),
+            },
+        },
+    )
+
+
 @router.post("/video-runs/{run_id}/rerun", summary="Create a new video run from a previous run")
 def rerun_video_run(
     request: Request,

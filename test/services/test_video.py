@@ -51,6 +51,8 @@ class TestSecurityControls(unittest.TestCase):
         video_path = os.path.join(task_dir, "final-1.mp4")
         Path(video_path).write_bytes(b"fake-video")
         config.app["endpoint"] = ""
+        original_state = sm.state
+        sm.state = sm.MemoryState()
 
         try:
             sm.state.update_task(
@@ -66,6 +68,7 @@ class TestSecurityControls(unittest.TestCase):
             self.assertEqual(sm.state.get_task(task_id)["videos"], [video_path])
         finally:
             sm.state.delete_task(task_id)
+            sm.state = original_state
             shutil.rmtree(task_dir, ignore_errors=True)
 
     def test_in_memory_task_manager_rejects_when_queue_is_full(self):

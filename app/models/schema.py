@@ -13,6 +13,12 @@ warnings.filterwarnings(
     category=UserWarning,
     message="Field name.*shadows an attribute in parent.*",
 )
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    message=r"In file .* bytes wanted but .* bytes read .* Using the last valid frame instead\.",
+    module=r"moviepy\.video\.io\.ffmpeg_reader",
+)
 
 
 class VideoConcatMode(str, Enum):
