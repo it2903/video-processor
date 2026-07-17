@@ -403,6 +403,9 @@ def sync_task_to_run(run: dict[str, Any], task: dict[str, Any] | None) -> dict[s
         "cancelled",
         "deleted",
     } and status in {"completed", "failed"}
+    if status == "completed":
+        _record_artifacts(run, task)
+
     if should_record_terminal_events:
         record_event(
             run_id=run["id"],
@@ -417,7 +420,6 @@ def sync_task_to_run(run: dict[str, Any], task: dict[str, Any] | None) -> dict[s
             },
         )
         if status == "completed":
-            _record_artifacts(run, task)
             _record_usage(run, task)
 
     attached_run = _attach_artifacts({**run, **update_payload}) or {**run, **update_payload}

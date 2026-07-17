@@ -78,6 +78,42 @@ class TestVideoRuns(unittest.TestCase):
         self.assertIn("mpt_generation_events", inserted_tables)
         self.assertIn("mpt_usage_records", inserted_tables)
 
+    def test_sync_terminal_completed_task_records_missing_artifacts_idempotently(self):
+        run = {
+            "id": "33333333-3333-3333-3333-333333333333",
+            "workspace_id": "11111111-1111-1111-1111-111111111111",
+            "user_id": "22222222-2222-2222-2222-222222222222",
+            "mpt_task_id": "task-1",
+            "status": "completed",
+        }
+        task = {
+            "state": const.TASK_STATE_COMPLETE,
+            "progress": 100,
+            "script": "Este es el guion",
+            "terms": ["launch", "product"],
+            "storage_results": [
+                {
+                    "bucket": "mpt-videos",
+                    "object_path": "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/33333333-3333-3333-3333-333333333333/videos/final-1.mp4",
+                    "size": 1234,
+                    "content_type": "video/mp4",
+                }
+            ],
+        }
+
+        with (
+            patch.object(video_runs.supabase_domain, "update_row", return_value={}),
+            patch.object(video_runs.supabase_domain, "upsert_row", return_value={}) as upsert_row,
+            patch.object(video_runs.supabase_domain, "insert_row", return_value={}) as insert_row,
+        ):
+            video_runs.sync_task_to_run(run, task)
+
+        self.assertEqual(upsert_row.call_count, 1)
+        self.assertEqual(upsert_row.call_args.args[0], "mpt_video_artifacts")
+        inserted_tables = [call.args[0] for call in insert_row.call_args_list]
+        self.assertNotIn("mpt_generation_events", inserted_tables)
+        self.assertNotIn("mpt_usage_records", inserted_tables)
+
     def test_record_llm_generation_records_event_and_usage(self):
         with patch.object(video_runs.supabase_domain, "insert_row", return_value={}) as insert_row:
             video_runs.record_llm_generation(
